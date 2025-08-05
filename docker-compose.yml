@@ -1,0 +1,288 @@
+version: '3.8'
+
+# ST-AYGENT Combined Docker Compose 🚀
+# "All services in one place, just how Trisha likes it!" - Aye & Hue
+
+services:
+  # ===========================================
+  # Core Database Services 💾
+  # ===========================================
+  
+  # PostgreSQL - The brain that remembers everything
+  postgres:
+    image: postgres:16-alpine
+    container_name: st-aygent-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supersecret}
+      POSTGRES_MULTIPLE_DATABASES: feedback,analytics,sessions
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./shared-proxy-config/init-scripts:/docker-entrypoint-initdb.d:ro
+      - ./backups/postgres:/backups  # For backup storage
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # Redis - The speed demon for caching and queuing
+  redis:
+    image: redis:7-alpine
+    container_name: st-aygent-redis
+    command: >
+      redis-server 
+      --appendonly yes 
+      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-redispass}
+    volumes:
+      - redis-data:/data
+      - ./backups/redis:/backups  # For backup storage
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Application Services 🎯
+  # ===========================================
+
+  # Feedback API - Where feedback comes to party
+  feedback-api:
+    build: 
+      context: ./feedback-api
+      dockerfile: Dockerfile
+    container_name: st-aygent-feedback-api
+    environment:
+      - PORT=8000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/feedback
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379/0
+      - API_KEY=${FEEDBACK_API_KEY:-your-secret-api-key}
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - FEEDBACK_DIR=/app/feedback
+      - ENABLE_METRICS=true
+      - METRICS_PORT=9091
+    volumes:
+      - ./feedback-api/feedback:/app/feedback
+      - ./logs/api:/app/logs
+    ports:
+      - "8000:8000"    # API port
+      - "9091:9091"    # Metrics port
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # Feedback Worker - The hardworking processor
+  feedback-worker:
+    build:
+      context: ./feedback-worker
+      dockerfile: Dockerfile
+    container_name: st-aygent-feedback-worker
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_REPO=${GITHUB_REPO:-8b-is/st-aygent}
+      - FEEDBACK_API_URL=http://feedback-api:8000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/feedback
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379/1
+      - WORKER_NAME=${WORKER_NAME:-worker-1}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-4}
+      - BATCH_SIZE=${BATCH_SIZE:-10}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - PROMETHEUS_PORT=9092
+    volumes:
+      - ./logs/worker:/app/logs
+      - ./feedback-worker/worker.py:/app/worker.py:ro  # Hot reload for dev
+    ports:
+      - "9092:9092"    # Metrics port
+    depends_on:
+      - feedback-api
+      - redis
+      - postgres
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Proxy & Gateway Services 🛡️
+  # ===========================================
+
+  # NGINX - The bouncer at the door
+  nginx:
+    image: nginx:alpine
+    container_name: st-aygent-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./shared-proxy-config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./shared-proxy-config/sites-enabled:/etc/nginx/sites-enabled:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - feedback-api
+      - grafana
+      - prometheus
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Monitoring & Observability 📊
+  # ===========================================
+
+  # Prometheus - The metrics collector
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: st-aygent-prometheus
+    volumes:
+      - ./shared-proxy-config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # Grafana - Pretty graphs for Trisha
+  grafana:
+    image: grafana/grafana:latest
+    container_name: st-aygent-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./shared-proxy-config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./feedback-worker/grafana/dashboards:/etc/grafana/provisioning/dashboards/worker:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Backup Services 💾
+  # ===========================================
+
+  # Automated backup service
+  backup-service:
+    image: offen/docker-volume-backup:latest
+    container_name: st-aygent-backup
+    environment:
+      BACKUP_CRON_EXPRESSION: "${BACKUP_SCHEDULE:-0 2 * * *}"
+      BACKUP_FILENAME: "st-aygent-backup-%Y-%m-%d_%H-%M-%S.tar.gz"
+      BACKUP_ARCHIVE: "/archive"
+      BACKUP_RETENTION_DAYS: "${BACKUP_RETENTION_DAYS:-7}"
+      BACKUP_PRUNING_PREFIX: "st-aygent-backup-"
+      # Optional S3 backup
+      AWS_S3_BUCKET_NAME: "${S3_BUCKET:-}"
+      AWS_ACCESS_KEY_ID: "${S3_ACCESS_KEY:-}"
+      AWS_SECRET_ACCESS_KEY: "${S3_SECRET_KEY:-}"
+      AWS_ENDPOINT: "${S3_ENDPOINT:-}"
+      BACKUP_ENCRYPTION_PASSPHRASE: "${BACKUP_ENCRYPTION_KEY:-}"
+    volumes:
+      - postgres-data:/backup/postgres-data:ro
+      - redis-data:/backup/redis-data:ro
+      - grafana-data:/backup/grafana-data:ro
+      - prometheus-data:/backup/prometheus-data:ro
+      - ./backups:/archive
+    networks:
+      - st-aygent-network
+    restart: unless-stopped
+
+  # ===========================================
+  # Development Tools 🛠️
+  # ===========================================
+
+  # pgAdmin - For database management (dev only)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: st-aygent-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@8b.is}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - st-aygent-network
+    profiles:
+      - dev
+    restart: unless-stopped
+
+  # RedisInsight - For Redis management (dev only)
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: st-aygent-redis-insight
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis-insight-data:/db
+    networks:
+      - st-aygent-network
+    profiles:
+      - dev
+    restart: unless-stopped
+
+# ===========================================
+# Volumes 📦
+# ===========================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  pgadmin-data:
+    driver: local
+  redis-insight-data:
+    driver: local
+
+# ===========================================
+# Networks 🌐
+# ===========================================
+networks:
+  st-aygent-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# Trisha says: "Remember to run ./scripts/manage.sh up to start everything!" 🎉

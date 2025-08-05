@@ -1,0 +1,308 @@
+# Aye & Hue's Comprehensive .gitignore =«
+# "Keeping the mess out since 2025!" - Trisha from Accounting
+
+###############################
+# Python Stuff =
+###############################
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Virtual environments (Hue loves these!)
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+###############################
+# Docker & Container Stuff =3
+###############################
+# Docker project files
+docker-compose.override.yml
+.docker/
+
+# Container data volumes (keep data safe!)
+postgres-data/
+redis-data/
+grafana-data/
+prometheus-data/
+
+###############################
+# Environment & Secrets =
+###############################
+# Environment files (Trisha says: "NEVER commit secrets!")
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+
+# Secret files
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+credentials/
+
+###############################
+# Database & Backups =¾
+###############################
+# Database dumps
+*.sql
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+
+# Backup files (but not backup scripts!)
+backups/
+*.backup
+*.bak
+*.old
+*.orig
+
+# But keep our backup scripts!
+!scripts/backup-*.sh
+
+###############################
+# IDE & Editor Files =»
+###############################
+# VS Code (Hue's favorite)
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.\#*
+
+# macOS (because Hue uses a Mac)
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+###############################
+# Logs & Temporary Files =Ý
+###############################
+# Log files
+*.log
+logs/
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+.tmp/
+
+###############################
+# Node.js (if we add any) =æ
+###############################
+node_modules/
+jspm_packages/
+.npm
+.eslintcache
+.node_repl_history
+*.tgz
+.yarn-integrity
+
+###############################
+# Testing & Coverage >ê
+###############################
+# Test reports
+test-results/
+test-report/
+coverage/
+.nyc_output/
+
+###############################
+# OS Generated Files =¥
+###############################
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+###############################
+# Project Specific <¯
+###############################
+# Generated files
+generated/
+output/
+build/
+dist/
+
+# Cache directories
+.cache/
+__pycache__/
+
+# Session files
+sessions/
+*.session
+
+# Upload directories (keep empty dir, not contents)
+uploads/*
+!uploads/.gitkeep
+
+# Static file collections
+staticfiles/
+static_collected/
+
+###############################
+# Monitoring & Metrics =Ê
+###############################
+# Prometheus data
+prometheus-data/
+
+# Grafana data
+grafana-data/
+
+# Metric exports
+metrics-export/
+
+###############################
+# Documentation Build =Ú
+###############################
+# Sphinx documentation
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# MkDocs
+site/
+
+###############################
+# Miscellaneous <²
+###############################
+# Compressed files (unless needed)
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# But keep deployment archives!
+!deploy/*.tar.gz
+
+# Local notes (Hue's random thoughts)
+notes.txt
+TODO.local.txt
+.notes/
+
+# Trisha's special files
+accounting-notes/
+sparkle-tracker.xlsx
+
+# Hot Tub Mode artifacts
+hot-tub-session-*.log
+rubber-duck-debug/
+
+###############################
+# Security Scans =á
+###############################
+# Security scan results
+security-scan-results/
+vulnerability-report/
+
+# But keep security policies!
+!security-policies/
+
+# End of .gitignore
+# Remember: When in doubt, keep it out! <‰
