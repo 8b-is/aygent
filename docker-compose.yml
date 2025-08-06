@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ST-AYGENT Combined Docker Compose 🚀
 # "All services in one place, just how Trisha likes it!" - Aye & Hue
 
@@ -61,12 +59,13 @@ services:
 
   # Feedback API - Where feedback comes to party
   feedback-api:
+    image: g.8b.is/st-aygent/feedback-api:${TAG:-latest}
     build: 
       context: ./feedback-api
       dockerfile: Dockerfile
     container_name: st-aygent-feedback-api
     environment:
-      - PORT=8000
+      - PORT=8420
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/feedback
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379/0
       - API_KEY=${FEEDBACK_API_KEY:-your-secret-api-key}
@@ -79,7 +78,7 @@ services:
       - ./feedback-api/feedback:/app/feedback
       - ./logs/api:/app/logs
     ports:
-      - "8000:8000"    # API port
+      - "8000:8420"    # API port (maps host 8000 to container 8420)
       - "9091:9091"    # Metrics port
     depends_on:
       postgres:
@@ -97,6 +96,7 @@ services:
 
   # Feedback Worker - The hardworking processor
   feedback-worker:
+    image: g.8b.is/st-aygent/feedback-worker:${TAG:-latest}
     build:
       context: ./feedback-worker
       dockerfile: Dockerfile
@@ -184,7 +184,6 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./shared-proxy-config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./feedback-worker/grafana/dashboards:/etc/grafana/provisioning/dashboards/worker:ro
     ports:
       - "3000:3000"
     depends_on:
@@ -283,6 +282,6 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.21.0.0/16
+        - subnet: 172.24.0.0/16
 
 # Trisha says: "Remember to run ./scripts/manage.sh up to start everything!" 🎉

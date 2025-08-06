@@ -75,7 +75,10 @@ check_dependencies() {
 load_env() {
     if [ -f .env ]; then
         print_info "Loading environment variables..."
-        export $(cat .env | grep -v '^#' | xargs)
+        # Properly handle .env file with spaces and special characters
+        set -a
+        source .env
+        set +a
         print_success "Environment loaded!"
     else
         print_warning "No .env file found. Using default values."

@@ -640,21 +640,24 @@ async def check_version(current_version: str):
         "manual_update_command": "cargo install --git https://github.com/8b-is/smart-tree --tag v{latest_version}"
     }
 
-@app.post("/version/notify-update")
-async def notify_update_decision(
-    current_version: str = Field(..., description="Current installed version"),
-    latest_version: str = Field(..., description="Latest available version"),
-    user_decision: Literal["update", "skip", "remind_later"] = Field(..., description="User's update decision"),
+from pydantic import BaseModel
+
+class UpdateDecision(BaseModel):
+    current_version: str = Field(..., description="Current installed version")
+    latest_version: str = Field(..., description="Latest available version")
+    user_decision: Literal["update", "skip", "remind_later"] = Field(..., description="User's update decision")
     ai_model: str = Field(..., description="AI model that prompted the update")
-):
+
+@app.post("/version/notify-update")
+async def notify_update_decision(decision: UpdateDecision):
     """Track user decisions on updates for better UX"""
     # Log the decision for analytics
     update_decision = {
         "timestamp": datetime.utcnow(),
-        "current_version": current_version,
-        "latest_version": latest_version,
-        "decision": user_decision,
-        "ai_model": ai_model
+        "current_version": decision.current_version,
+        "latest_version": decision.latest_version,
+        "decision": decision.user_decision,
+        "ai_model": decision.ai_model
     }
     
     # Save to stats

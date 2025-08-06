@@ -1,0 +1,310 @@
+#cloud-config
+# Smart Tree Feedback API - Hetzner Cloud Init
+# Your construction helper's cloud configuration! 🏗️☁️
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - git
+  - python3-pip
+  - python3-venv
+  - postgresql-client
+  - redis-tools
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - htop
+  - iotop
+  - ncdu
+  - ripgrep
+  - curl
+  - jq
+  - ufw
+
+users:
+  - name: feedback
+    groups: docker
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2"
+      }
+
+  - path: /opt/smart-tree-feedback/.env
+    permissions: '0600'
+    owner: feedback:feedback
+    content: |
+      # Database
+      POSTGRES_USER=feedback_user
+      POSTGRES_PASSWORD=change_me_to_secure_password
+      POSTGRES_DB=smart_tree_feedback
+      
+      # Redis
+      REDIS_PASSWORD=change_me_to_secure_redis_password
+      REDIS_MAX_MEMORY=512mb
+      
+      # API Configuration
+      FEEDBACK_API_KEY=change_me_to_secure_api_key
+      GITHUB_TOKEN=${GITHUB_TOKEN}
+      DISCORD_WEBHOOK=${DISCORD_WEBHOOK}
+      
+      # Service URLs
+      DATABASE_URL=postgresql://feedback_user:change_me_to_secure_password@postgres:5432/smart_tree_feedback
+      REDIS_URL=redis://:change_me_to_secure_redis_password@redis:6379
+      
+      # Monitoring
+      PROMETHEUS_PORT=9090
+      CADVISOR_PORT=8080
+      
+      # Instance Info
+      INSTANCE_ID=${INSTANCE_ID}
+      ENVIRONMENT=production
+
+  - path: /opt/smart-tree-feedback/docker-compose.yml
+    owner: feedback:feedback
+    content: |
+      version: '3.8'
+      
+      services:
+        postgres:
+          image: postgres:15-alpine
+          restart: always
+          environment:
+            POSTGRES_USER: ${POSTGRES_USER}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB}
+          volumes:
+            - postgres_data:/var/lib/postgresql/data
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        
+        redis:
+          image: redis:7-alpine
+          restart: always
+          command: >
+            redis-server
+            --requirepass ${REDIS_PASSWORD}
+            --maxmemory ${REDIS_MAX_MEMORY}
+            --maxmemory-policy allkeys-lru
+          volumes:
+            - redis_data:/data
+          healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        
+        feedback-api:
+          image: ghcr.io/8b-is/smart-tree-feedback-api:latest
+          restart: always
+          ports:
+            - "8000:8000"
+          environment:
+            DATABASE_URL: ${DATABASE_URL}
+            REDIS_URL: ${REDIS_URL}
+            FEEDBACK_API_KEY: ${FEEDBACK_API_KEY}
+            GITHUB_TOKEN: ${GITHUB_TOKEN}
+            DISCORD_WEBHOOK: ${DISCORD_WEBHOOK}
+          depends_on:
+            postgres:
+              condition: service_healthy
+            redis:
+              condition: service_healthy
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        
+        feedback-worker:
+          image: ghcr.io/8b-is/smart-tree-feedback-worker:latest
+          restart: always
+          environment:
+            REDIS_URL: ${REDIS_URL}
+            GITHUB_TOKEN: ${GITHUB_TOKEN}
+            DISCORD_WEBHOOK: ${DISCORD_WEBHOOK}
+            WORKER_NAME: ${INSTANCE_ID}
+          depends_on:
+            redis:
+              condition: service_healthy
+        
+        cadvisor:
+          image: gcr.io/cadvisor/cadvisor:latest
+          restart: always
+          ports:
+            - "8080:8080"
+          volumes:
+            - /:/rootfs:ro
+            - /var/run:/var/run:ro
+            - /sys:/sys:ro
+            - /var/lib/docker/:/var/lib/docker:ro
+            - /dev/disk/:/dev/disk:ro
+          privileged: true
+        
+        prometheus:
+          image: prom/prometheus:latest
+          restart: always
+          ports:
+            - "9090:9090"
+          volumes:
+            - ./prometheus.yml:/etc/prometheus/prometheus.yml
+            - prometheus_data:/prometheus
+          command:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+      
+      volumes:
+        postgres_data:
+        redis_data:
+        prometheus_data:
+
+  - path: /opt/smart-tree-feedback/prometheus.yml
+    owner: feedback:feedback
+    content: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+      
+      scrape_configs:
+        - job_name: 'feedback-api'
+          static_configs:
+            - targets: ['feedback-api:8000']
+        
+        - job_name: 'cadvisor'
+          static_configs:
+            - targets: ['cadvisor:8080']
+        
+        - job_name: 'redis'
+          static_configs:
+            - targets: ['redis:6379']
+
+  - path: /opt/smart-tree-feedback/health-check.sh
+    owner: feedback:feedback
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Health check script
+      
+      echo "🏗️ Smart Tree Feedback System Health Check"
+      echo "========================================="
+      echo ""
+      
+      # Check Docker services
+      echo "📦 Docker Services:"
+      docker-compose -f /opt/smart-tree-feedback/docker-compose.yml ps
+      echo ""
+      
+      # Check API health
+      echo "🌐 API Health:"
+      curl -s http://localhost:8000/health | jq . || echo "API not responding"
+      echo ""
+      
+      # Check Redis
+      echo "🚀 Redis Status:"
+      docker exec $(docker ps -q -f name=redis) redis-cli -a ${REDIS_PASSWORD} INFO server | grep redis_version
+      echo ""
+      
+      # Check Postgres
+      echo "💾 PostgreSQL Status:"
+      docker exec $(docker ps -q -f name=postgres) pg_isready
+      echo ""
+      
+      echo "✅ Health check complete!"
+
+  - path: /etc/nginx/sites-available/feedback-api
+    content: |
+      server {
+          listen 80;
+          server_name _;
+          
+          location / {
+              proxy_pass http://localhost:8000;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+          }
+          
+          location /metrics {
+              proxy_pass http://localhost:9090/metrics;
+          }
+      }
+
+runcmd:
+  # Setup firewall
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 8000/tcp
+  - ufw allow 8080/tcp
+  - ufw allow 9090/tcp
+  - ufw --force enable
+  
+  # Setup Docker
+  - systemctl restart docker
+  - usermod -aG docker feedback
+  
+  # Setup working directory
+  - chown -R feedback:feedback /opt/smart-tree-feedback
+  
+  # Enable nginx site
+  - ln -sf /etc/nginx/sites-available/feedback-api /etc/nginx/sites-enabled/
+  - nginx -t && systemctl restart nginx
+  
+  # Start services
+  - cd /opt/smart-tree-feedback && docker-compose pull
+  - cd /opt/smart-tree-feedback && docker-compose up -d
+  
+  # Setup auto-restart
+  - |
+    cat > /etc/systemd/system/smart-tree-feedback.service << EOF
+    [Unit]
+    Description=Smart Tree Feedback System
+    After=docker.service
+    Requires=docker.service
+    
+    [Service]
+    Type=forking
+    RemainAfterExit=yes
+    WorkingDirectory=/opt/smart-tree-feedback
+    ExecStart=/usr/bin/docker-compose up -d
+    ExecStop=/usr/bin/docker-compose down
+    TimeoutStartSec=0
+    
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+  
+  - systemctl daemon-reload
+  - systemctl enable smart-tree-feedback
+  
+  # Log success
+  - echo "🎉 Smart Tree Feedback API deployed successfully!" > /opt/smart-tree-feedback/deployment.log
+  - echo "Aye, Aye! 🚢" >> /opt/smart-tree-feedback/deployment.log
+
+final_message: |
+  🚀 Smart Tree Feedback API is ready!
+  Your construction helper is now in the cloud!
+  
+  API: http://$PUBLIC_IPV4:8000
+  Metrics: http://$PUBLIC_IPV4:9090
+  cAdvisor: http://$PUBLIC_IPV4:8080
+  
+  SSH: ssh feedback@$PUBLIC_IPV4
+  
+  Aye, Aye! 🚢
