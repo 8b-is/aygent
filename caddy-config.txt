@@ -1,0 +1,24 @@
+# Caddy configuration for f.8t.is
+# Add this to /etc/caddy/Caddyfile on the server
+
+f.8t.is {
+    # Short install URL - super clean! 🌲
+    handle_path /tree {
+        reverse_proxy localhost:8000
+    }
+    
+    # API endpoints - strip /api prefix
+    handle_path /api/* {
+        reverse_proxy localhost:8000
+    }
+    
+    # Also handle /api without trailing slash
+    handle_path /api {
+        reverse_proxy localhost:8000
+    }
+    
+    # Optional: Redirect root to GitHub or docs
+    handle / {
+        respond "Smart Tree Feedback System - Use 'curl f.8t.is/tree | bash' to install!" 200
+    }
+}

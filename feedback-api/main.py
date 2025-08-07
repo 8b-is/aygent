@@ -800,28 +800,55 @@ async def get_latest_version():
 
 
 @app.get("/install", response_class=PlainTextResponse)
+@app.get("/tree", response_class=PlainTextResponse)  # Short and sweet! 🌲
 async def get_install_script(version: Optional[str] = None):
     """Get Smart Tree installation/update script"""
 
     install_script = """#!/bin/bash
 # Smart Tree Installation Script 🌲
-# Powered by ST-AYGENT Feedback System
+# Fast binary installation - no compilation needed!
 
 set -e
 
 YELLOW='\\033[1;33m'
 GREEN='\\033[0;32m'
 RED='\\033[0;31m'
+BLUE='\\033[0;34m'
 NC='\\033[0m' # No Color
 
 echo -e "${GREEN}🌲 Smart Tree Installer${NC}"
 echo "========================"
 
-VERSION="${1:-latest}"
+# Parse arguments
+VERSION="latest"
+BUILD_FROM_SOURCE=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --build)
+            BUILD_FROM_SOURCE=true
+            shift
+            ;;
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        *)
+            VERSION="$1"
+            shift
+            ;;
+    esac
+done
 
 # Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
+
+case "$OS" in
+    darwin) OS="macos" ;;
+    linux) OS="linux" ;;
+    *) echo -e "${RED}❌ Unsupported OS: $OS${NC}"; exit 1 ;;
+esac
 
 case "$ARCH" in
     x86_64) ARCH="x86_64" ;;
@@ -829,11 +856,19 @@ case "$ARCH" in
     *) echo -e "${RED}❌ Unsupported architecture: $ARCH${NC}"; exit 1 ;;
 esac
 
-echo -e "${YELLOW}📦 Installing Smart Tree $VERSION for $OS-$ARCH...${NC}"
+echo -e "${YELLOW}📦 Installing Smart Tree for $OS-$ARCH...${NC}"
 
-# Check if cargo is available
-if command -v cargo &> /dev/null; then
-    echo -e "${GREEN}✅ Cargo found, building from source...${NC}"
+# Fetch latest version if needed
+if [ "$VERSION" = "latest" ]; then
+    echo -e "${BLUE}🔍 Checking latest version...${NC}"
+    VERSION_INFO=$(curl -s https://f.8t.is/api/smart-tree/latest)
+    VERSION=$(echo "$VERSION_INFO" | grep -o '"version":"[^"]*' | cut -d'"' -f4)
+    echo -e "${GREEN}✓ Latest version: $VERSION${NC}"
+fi
+
+# Default to binary installation unless --build flag is used
+if [ "$BUILD_FROM_SOURCE" = true ] && command -v cargo &> /dev/null; then
+    echo -e "${YELLOW}🔨 Building from source (this may take a while)...${NC}"
     INSTALL_METHOD="cargo"
     
     if [ "$VERSION" = "latest" ]; then
@@ -842,50 +877,65 @@ if command -v cargo &> /dev/null; then
         cargo install --git https://github.com/8b-is/smart-tree --tag "v$VERSION"
     fi
     
-    # Record installation location
     ST_PATH=$(which st 2>/dev/null || echo "$HOME/.cargo/bin/st")
-    
-    echo -e "${GREEN}✨ Smart Tree installed successfully!${NC}"
-    echo -e "${YELLOW}📍 Installed at: $ST_PATH${NC}"
-    echo -e "${YELLOW}Run 'st --version' to verify installation${NC}"
 else
-    echo -e "${YELLOW}⚠️  Cargo not found. Trying binary installation...${NC}"
+    # Binary installation (fast!)
+    echo -e "${GREEN}⚡ Downloading pre-built binary (fast!)...${NC}"
     INSTALL_METHOD="binary"
     
-    # Fetch latest version info
-    VERSION_INFO=$(curl -s https://f.8t.is/api/smart-tree/latest)
+    # Try different binary naming conventions
+    BINARY_URLS=(
+        "https://github.com/8b-is/smart-tree/releases/download/v${VERSION}/smart-tree-${OS}-${ARCH}"
+        "https://github.com/8b-is/smart-tree/releases/download/v${VERSION}/st-${OS}-${ARCH}"
+        "https://github.com/8b-is/smart-tree/releases/download/v${VERSION}/smart-tree-v${VERSION}-${OS}-${ARCH}"
+    )
     
-    if [ "$VERSION" = "latest" ]; then
-        VERSION=$(echo "$VERSION_INFO" | grep -o '"version":"[^"]*' | cut -d'"' -f4)
+    # Create installation directory
+    INSTALL_DIR="$HOME/.local/bin"
+    mkdir -p "$INSTALL_DIR"
+    
+    # Try each URL until one works
+    DOWNLOAD_SUCCESS=false
+    for URL in "${BINARY_URLS[@]}"; do
+        echo -e "${BLUE}→ Trying: $URL${NC}"
+        if curl -fsSL "$URL" -o "$INSTALL_DIR/st.tmp" 2>/dev/null; then
+            mv "$INSTALL_DIR/st.tmp" "$INSTALL_DIR/st"
+            chmod +x "$INSTALL_DIR/st"
+            DOWNLOAD_SUCCESS=true
+            echo -e "${GREEN}✓ Download successful!${NC}"
+            break
+        fi
+    done
+    
+    if [ "$DOWNLOAD_SUCCESS" = false ]; then
+        echo -e "${RED}❌ Binary not found for v${VERSION}${NC}"
+        echo -e "${YELLOW}Available options:${NC}"
+        echo "  1. Try a different version: curl -fsSL https://f.8t.is/api/install | bash -s 3.3.5"
+        echo "  2. Build from source: curl -fsSL https://f.8t.is/api/install | bash -s -- --build"
+        echo "  3. Install Rust and build: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        exit 1
     fi
     
-    # Download binary from GitHub releases
-    BINARY_URL="https://github.com/8b-is/smart-tree/releases/download/v${VERSION}/smart-tree-${OS}-${ARCH}"
+    ST_PATH="$INSTALL_DIR/st"
     
-    echo -e "${YELLOW}📥 Downloading from: $BINARY_URL${NC}"
-    
-    # Create local bin directory if it doesn't exist
-    mkdir -p ~/.local/bin
-    
-    # Download and install
-    if curl -fsSL "$BINARY_URL" -o ~/.local/bin/st; then
-        chmod +x ~/.local/bin/st
+    # Add to PATH if not already there
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        echo -e "${YELLOW}📝 Adding $INSTALL_DIR to PATH...${NC}"
         
-        # Add to PATH if not already there
-        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc 2>/dev/null || true
-            echo -e "${YELLOW}📝 Added ~/.local/bin to PATH${NC}"
-            echo -e "${YELLOW}   Run 'source ~/.bashrc' to update current session${NC}"
-        fi
+        # Add to shell configs
+        for SHELL_RC in ~/.bashrc ~/.zshrc ~/.config/fish/config.fish; do
+            if [ -f "$SHELL_RC" ]; then
+                if ! grep -q "$INSTALL_DIR" "$SHELL_RC"; then
+                    if [[ "$SHELL_RC" == *"fish"* ]]; then
+                        echo "set -gx PATH $INSTALL_DIR \\$PATH" >> "$SHELL_RC"
+                    else
+                        echo "export PATH=\\"$INSTALL_DIR:\\$PATH\\"" >> "$SHELL_RC"
+                    fi
+                fi
+            fi
+        done
         
-        echo -e "${GREEN}✨ Smart Tree installed successfully!${NC}"
-        echo -e "${YELLOW}Run '~/.local/bin/st --version' to verify installation${NC}"
-    else
-        echo -e "${RED}❌ Failed to download binary${NC}"
-        echo -e "${YELLOW}Please install Rust and try again:${NC}"
-        echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
-        exit 1
+        echo -e "${YELLOW}   Run 'source ~/.bashrc' (or restart terminal) to update PATH${NC}"
     fi
 fi
 
@@ -908,15 +958,22 @@ fi
 
 echo -e "${GREEN}🎉 Installation complete!${NC}"
 echo ""
-echo "Smart Tree MCP Tools for AI Assistants"
-echo "Report issues: st feedback"
-echo "Check updates: st update"
+echo -e "${BLUE}📍 Installed at: $ST_PATH${NC}"
+echo -e "${BLUE}📦 Version: $VERSION${NC}"
+echo -e "${BLUE}⚙️  Method: $INSTALL_METHOD${NC}"
+echo ""
+echo "Quick Start:"
+echo "  st --help           # Show commands"
+echo "  st update           # Check for updates"
+echo "  st feedback         # Report issues"
 echo ""
 echo -e "${GREEN}Aye, Aye! Ready to sail! 🚢${NC}"
 """
 
     if version:
-        install_script = install_script.replace("${1:-latest}", f"${{1:-{version}}}")
+        install_script = install_script.replace(
+            'VERSION="latest"', f'VERSION="{version}"'
+        )
 
     return install_script
 
