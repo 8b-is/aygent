@@ -721,7 +721,6 @@ async def check_version(current_version: str):
     }
 
 
-
 class UpdateDecision(BaseModel):
     current_version: str = Field(..., description="Current installed version")
     latest_version: str = Field(..., description="Latest available version")

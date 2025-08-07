@@ -110,9 +110,7 @@ async def main():
         print("  1. Start Redis: docker run -d -p 6379:6379 redis:7-alpine")
         print("  2. Set GITHUB_TOKEN environment variable")
         print("  3. Run worker: python worker.py")
-        print(
-            "  4. Check GitHub issues at: https://github.com/8b-is/smart-tree/issues"
-        )
+        print("  4. Check GitHub issues at: https://github.com/8b-is/smart-tree/issues")
 
 
 if __name__ == "__main__":
