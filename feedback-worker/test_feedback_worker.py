@@ -5,11 +5,8 @@ Test suite for ST-AYGENT Feedback Worker
 """
 
 import pytest
-import asyncio
 import os
 from unittest.mock import Mock, patch, AsyncMock
-from datetime import datetime
-import json
 
 # Set test environment
 os.environ["GITHUB_TOKEN"] = "fake_token_for_testing"
@@ -163,9 +160,10 @@ async def test_worker_redis_connection():
     mock_redis_instance = AsyncMock()
     mock_redis_instance.close = AsyncMock()
 
-    with patch(
-        "worker.aioredis.from_url", return_value=mock_redis_instance
-    ) as mock_redis:
+    async def mock_from_url(url):
+        return mock_redis_instance
+
+    with patch("worker.redis.from_url", side_effect=mock_from_url) as mock_redis:
         with patch("worker.Github"):
             worker = FeedbackWorker()
             worker.repo = None

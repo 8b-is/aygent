@@ -4,9 +4,6 @@ Test script for feedback worker
 """
 
 import asyncio
-import json
-from datetime import datetime
-from pathlib import Path
 
 import httpx
 
@@ -47,7 +44,7 @@ async def test_feedback_submission():
 
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ Feedback submitted successfully!")
+            print("✅ Feedback submitted successfully!")
             print(f"   ID: {result['feedback_id']}")
             print(f"   Compression: {result['compression_ratio']:.1f}x")
             return result["feedback_id"]
@@ -109,12 +106,12 @@ async def main():
     print("\n✨ Tests complete!")
 
     if feedback_id:
-        print(f"\nTo see the worker process this feedback:")
-        print(f"  1. Start Redis: docker run -d -p 6379:6379 redis:7-alpine")
-        print(f"  2. Set GITHUB_TOKEN environment variable")
-        print(f"  3. Run worker: python worker.py")
+        print("\nTo see the worker process this feedback:")
+        print("  1. Start Redis: docker run -d -p 6379:6379 redis:7-alpine")
+        print("  2. Set GITHUB_TOKEN environment variable")
+        print("  3. Run worker: python worker.py")
         print(
-            f"  4. Check GitHub issues at: https://github.com/8b-is/smart-tree/issues"
+            "  4. Check GitHub issues at: https://github.com/8b-is/smart-tree/issues"
         )
 
 

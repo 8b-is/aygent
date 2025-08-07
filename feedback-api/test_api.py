@@ -6,18 +6,15 @@ Test suite for ST-AYGENT Feedback API
 
 import pytest
 from fastapi.testclient import TestClient
-from datetime import datetime
-import json
 import tempfile
 import os
-from pathlib import Path
 
 # Set test environment
 os.environ["FEEDBACK_DIR"] = tempfile.mkdtemp()
 os.environ["STATS_DIR"] = tempfile.mkdtemp()
 os.environ["CONSENT_DIR"] = tempfile.mkdtemp()
 
-from main import app, SmartTreeFeedback
+from main import app
 
 client = TestClient(app)
 

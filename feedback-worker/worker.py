@@ -8,14 +8,12 @@ import asyncio
 import json
 import os
 import re
-import sys
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
+from datetime import datetime
+from typing import Dict, List, Optional
 import hashlib
 
 import aiohttp
 import redis.asyncio as redis
-import redis.asyncio as aioredis  # Alias for compatibility
 from github import Github, GithubException
 import uvloop
 from prometheus_client import Counter, Histogram, start_http_server

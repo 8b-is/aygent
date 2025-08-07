@@ -7,7 +7,7 @@ Collects enhancement requests from AI assistants using smart-tree MCP.
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Literal, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import hashlib
 import json
 import zlib
@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 import uvicorn
 from collections import defaultdict
-import asyncio
 
 app = FastAPI(
     title="Smart Tree Feedback API",
@@ -235,7 +234,7 @@ async def health_check():
     try:
         feedback_count = sum(1 for _ in FEEDBACK_DIR.glob("**/*.stfb"))
         health_status["feedback_count"] = feedback_count
-    except:
+    except Exception:
         health_status["status"] = "degraded"
 
     return health_status
@@ -294,7 +293,7 @@ async def submit_feedback(
 
         return FeedbackResponse(
             feedback_id=feedback_id,
-            message=f"Feedback received! The Franchise Wars appreciate your contribution! 🌮",
+            message="Feedback received! The Franchise Wars appreciate your contribution! 🌮",
             compressed_size=compressed_size,
             original_size=original_size,
             compression_ratio=round(compression_ratio, 2),
@@ -607,8 +606,8 @@ async def get_pending_feedback(limit: int = 10, offset: int = 0):
                     if magic != b"STFB":
                         continue
 
-                    version = f.read(2)
-                    original_size = int.from_bytes(f.read(4), "little")
+                    _ = f.read(2)  # version
+                    _ = int.from_bytes(f.read(4), "little")  # original_size
                     compressed_size = int.from_bytes(f.read(4), "little")
 
                     # Read and decompress data
@@ -721,8 +720,6 @@ async def check_version(current_version: str):
         "manual_update_command": "cargo install --git https://github.com/8b-is/smart-tree --tag v{latest_version}",
     }
 
-
-from pydantic import BaseModel
 
 
 class UpdateDecision(BaseModel):
