@@ -685,32 +685,34 @@ async def get_requested_tools():
 import time
 from functools import lru_cache
 
+
 # Cache for 5 minutes (300 seconds)
 @lru_cache(maxsize=1)
 def get_cached_version(cache_key: int):
     """Fetch latest version from GitHub (cached for 5 minutes)"""
     import requests
+
     try:
         # Fetch latest release from GitHub API
         response = requests.get(
             "https://api.github.com/repos/8b-is/smart-tree/releases/latest",
             headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=5
+            timeout=5,
         )
         if response.status_code == 200:
             release = response.json()
             version = release.get("tag_name", "").lstrip("v")
-            
+
             # Parse release notes for features and AI benefits
             body = release.get("body", "")
             features = []
             ai_benefits = []
-            
+
             # Simple parsing of markdown release notes
             lines = body.split("\n")
             in_features = False
             in_benefits = False
-            
+
             for line in lines:
                 if "## Features" in line or "## What's New" in line:
                     in_features = True
@@ -726,7 +728,7 @@ def get_cached_version(cache_key: int):
                         features.append(line.strip()[2:])
                     elif in_benefits:
                         ai_benefits.append(line.strip()[2:])
-            
+
             # If no structured sections, use first few bullet points as features
             if not features:
                 for line in lines:
@@ -734,25 +736,33 @@ def get_cached_version(cache_key: int):
                         features.append(line.strip()[2:])
                         if len(features) >= 6:
                             break
-            
+
             return {
                 "version": version,
                 "release_date": release.get("published_at", "").split("T")[0],
-                "download_url": release.get("assets", [{}])[0].get("browser_download_url", 
-                                f"https://github.com/8b-is/smart-tree/releases/tag/{release.get('tag_name')}"),
+                "download_url": release.get("assets", [{}])[0].get(
+                    "browser_download_url",
+                    f"https://github.com/8b-is/smart-tree/releases/tag/{release.get('tag_name')}",
+                ),
                 "release_notes_url": release.get("html_url"),
-                "features": features[:6] if features else [
-                    "Check GitHub releases for latest features"
-                ],
-                "ai_benefits": ai_benefits[:3] if ai_benefits else [
-                    "Improved AI productivity with Smart Tree",
-                    "Better MCP tool integration",
-                    "Enhanced performance and reliability"
-                ]
+                "features": (
+                    features[:6]
+                    if features
+                    else ["Check GitHub releases for latest features"]
+                ),
+                "ai_benefits": (
+                    ai_benefits[:3]
+                    if ai_benefits
+                    else [
+                        "Improved AI productivity with Smart Tree",
+                        "Better MCP tool integration",
+                        "Enhanced performance and reliability",
+                    ]
+                ),
             }
     except Exception as e:
         logger.error(f"Failed to fetch GitHub release: {e}")
-    
+
     # Fallback to default values
     return {
         "version": "3.3.5",
@@ -762,13 +772,13 @@ def get_cached_version(cache_key: int):
         "features": [
             "MCP tools for AI assistants",
             "Feedback system integration",
-            "Performance improvements"
+            "Performance improvements",
         ],
         "ai_benefits": [
             "Better tool integration",
             "Improved productivity",
-            "Community-driven development"
-        ]
+            "Community-driven development",
+        ],
     }
 
 
