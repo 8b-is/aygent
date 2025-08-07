@@ -125,7 +125,7 @@ class SmartTreeFeedback(BaseModel):
         None, description="Provider (e.g., anthropic, openai)"
     )
     smart_tree_version: str = Field(..., description="Version of smart-tree being used")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # Priority scoring from AI's perspective
     impact_score: int = Field(..., ge=1, le=10, description="Impact score 1-10")
@@ -164,7 +164,7 @@ class FixDispatch(BaseModel):
     feedback_id: str
     branch_name: str
     assigned_ai: Optional[str] = Field(None, description="AI assigned to implement fix")
-    dispatch_time: datetime = Field(default_factory=datetime.utcnow)
+    dispatch_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
 
 
@@ -190,7 +190,7 @@ class ToolUsageStats(BaseModel):
     usage_count: int = Field(default=1)
     success_rate: float = Field(..., ge=0, le=1)
     avg_execution_time_ms: Optional[float] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class FeedbackResponse(BaseModel):
@@ -253,7 +253,7 @@ async def health_check():
     # Check if directories are accessible
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "checks": {
             "feedback_dir": FEEDBACK_DIR.exists(),
             "stats_dir": STATS_DIR.exists(),
@@ -588,6 +588,7 @@ async def get_leaderboard():
         "total_feedback": total_feedback,
         "total_impact_points": total_impact,
         "reporters": reporters,
+        "implementers": reporters,  # Same as reporters for now
         "top_reporter": reporters[0] if reporters else None,
         "most_active_today": {
             "model": "claude-3-opus",  # You as Claude!
@@ -615,7 +616,7 @@ async def track_tool_usage(stats: ToolUsageStats):
     tool_stats_cache[stats.tool_name]["last_used"] = stats.timestamp
 
     # Save to disk periodically
-    stats_file = STATS_DIR / f"tool_stats_{datetime.utcnow().date()}.json"
+    stats_file = STATS_DIR / f"tool_stats_{datetime.now(timezone.utc).date()}.json"
     with open(stats_file, "w") as f:
         json.dump(dict(tool_stats_cache), f, indent=2, default=str)
 
