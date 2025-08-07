@@ -116,8 +116,8 @@ jobs:
       - name: Run tests
         env:
           REDIS_URL: redis://localhost:6379
-          GITHUB_TOKEN: fake_token_for_testing
-          GITHUB_REPO: test/repo
+          GITHUB_TOKEN: ${{ secrets.AYGENT_GITHUB_TOKEN }}
+          GITHUB_REPO: 8b-is/aygent
         run: |
           cd feedback-worker
           pytest -v --cov=. --cov-report=xml
