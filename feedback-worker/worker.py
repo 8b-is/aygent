@@ -45,11 +45,13 @@ logger = logging.getLogger("feedback-worker")
 class FeedbackWorker:
     def __init__(self):
         self.github_token = os.environ.get("GITHUB_TOKEN")
+        self.github_user = os.environ.get("GITHUB_USER", "aye-is")
+        self.github_email = os.environ.get("GITHUB_EMAIL", "claude@aye.is")
         self.feedback_api_url = os.environ.get(
             "FEEDBACK_API_URL", "https://f.8t.is/api"
         )
         self.redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
-        self.github_repo = os.environ.get("GITHUB_REPO", "8b-is/smart-tree")
+        self.github_repo = os.environ.get("GITHUB_REPO", "8b-is/aygent")
 
         # Initialize GitHub client (optional for local testing)
         self.gh = None
@@ -250,7 +252,7 @@ class FeedbackWorker:
                 body += f"\n### Proposed Solution\n{feedback['proposed_solution']}\n"
 
             # Add metadata
-            body += f"\n---\n*Automatically created by Smart Tree Feedback Worker*"
+            body += f"\n---\n*Automatically created by {self.github_email}*\n*ST-AYGENT Feedback System*"
 
             # Create the issue
             issue = self.repo.create_issue(
