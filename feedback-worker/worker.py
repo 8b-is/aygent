@@ -18,6 +18,7 @@ from github import Github, GithubException
 import uvloop
 from prometheus_client import Counter, Histogram, start_http_server
 import logging
+import requests
 
 # Metrics
 feedback_processed = Counter(
@@ -263,6 +264,59 @@ class FeedbackWorker:
 
         return None
 
+    async def trigger_ai_fix_dispatch(self, feedback: Dict, issue_number: int) -> bool:
+        """Trigger GitHub Actions workflow for AI to implement fix"""
+        if not self.gh or not self.repo:
+            return False
+        
+        try:
+            # Only trigger for high-impact bugs and critical issues
+            if feedback.get("category") not in ["bug", "critical"]:
+                return False
+            
+            if feedback.get("impact_score", 0) < 7:
+                return False
+            
+            # Generate branch name
+            branch_name = f"ai-fix-{feedback.get('id', 'unknown')[:8]}"
+            
+            # Trigger repository dispatch event
+            headers = {
+                "Authorization": f"token {self.github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            
+            payload = {
+                "event_type": "ai_fix_dispatch",
+                "client_payload": {
+                    "feedback_id": feedback.get("id"),
+                    "issue_number": issue_number,
+                    "branch_name": branch_name,
+                    "category": feedback.get("category"),
+                    "title": feedback.get("title"),
+                    "description": feedback.get("description"),
+                    "proposed_solution": feedback.get("proposed_solution", ""),
+                    "ai_model": feedback.get("ai_model", "unknown")
+                }
+            }
+            
+            response = requests.post(
+                f"https://api.github.com/repos/{self.github_repo}/dispatches",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 204:
+                logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
+                return True
+            else:
+                logger.error(f"Failed to trigger dispatch: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error triggering AI fix dispatch: {e}")
+            return False
+
     async def create_github_issue(self, feedback: Dict, category: str) -> Optional[int]:
         """Create GitHub issue from feedback"""
         if not self.repo:
@@ -361,6 +415,12 @@ class FeedbackWorker:
                     "issue_number": issue_number,
                     "processed": True,
                 }
+
+                if issue_number:
+                    # Trigger AI fix dispatch for high-impact issues
+                    if await self.trigger_ai_fix_dispatch(feedback, issue_number):
+                        result["ai_fix_triggered"] = True
+                        logger.info(f"AI fix workflow triggered for issue #{issue_number}")
 
                 if issue_number:
                     # Mark as processed in API
