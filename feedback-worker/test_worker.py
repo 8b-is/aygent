@@ -4,8 +4,12 @@ Test script for feedback worker
 """
 
 import asyncio
+import os
 import pytest
 import httpx
+
+# Use production API if CI environment, otherwise local
+API_BASE_URL = "https://f.8t.is/api" if os.getenv("CI") else "http://localhost:8422"
 
 
 @pytest.mark.asyncio
@@ -14,7 +18,7 @@ async def test_feedback_submission():
 
     test_feedback = {
         "category": "bug",
-        "title": "Search results don't show line content",
+        "title": "[TEST] Search results don't show line content",
         "description": "When using search_in_files MCP tool, it only shows file paths and match counts, not the actual matching lines. This makes it hard to understand context without opening files.",
         "affected_command": "st --search 'TODO'",
         "mcp_tool": "search_in_files",
@@ -30,50 +34,65 @@ async def test_feedback_submission():
         "smart_tree_version": "3.3.5",
         "impact_score": 8,
         "frequency_score": 9,
-        "tags": ["mcp", "search", "usability"],
+        "tags": ["mcp", "search", "usability", "ci-test"],
         "auto_fixable": True,
         "fix_complexity": "simple",
     }
 
-    async with httpx.AsyncClient() as client:
-        # Submit feedback
-        response = await client.post(
-            "http://localhost:8422/feedback",
-            json=test_feedback,
-            headers={"X-MCP-Client": "test-script"},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Submit feedback
+            response = await client.post(
+                f"{API_BASE_URL}/feedback",
+                json=test_feedback,
+                headers={"X-MCP-Client": "ci-test-script"},
+            )
 
-        if response.status_code == 200:
-            result = response.json()
-            print("✅ Feedback submitted successfully!")
-            print(f"   ID: {result['feedback_id']}")
-            print(f"   Compression: {result['compression_ratio']:.1f}x")
-            return result["feedback_id"]
+            if response.status_code == 200:
+                result = response.json()
+                print("✅ Feedback submitted successfully!")
+                print(f"   ID: {result['feedback_id']}")
+                print(f"   Compression: {result['compression_ratio']:.1f}x")
+                return result["feedback_id"]
+            else:
+                print(f"❌ Failed to submit feedback: {response.status_code}")
+                print(f"   {response.text}")
+                return None
+    except (httpx.ConnectError, httpx.TimeoutException) as e:
+        if os.getenv("CI"):
+            # In CI, skip if production API is not available
+            pytest.skip(f"Production API not available in CI: {e}")
         else:
-            print(f"❌ Failed to submit feedback: {response.status_code}")
-            print(f"   {response.text}")
-            return None
+            raise
 
 
 @pytest.mark.asyncio
 async def test_pending_endpoint():
     """Test fetching pending feedback"""
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get("http://localhost:8422/feedback/pending?limit=5")
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{API_BASE_URL}/feedback/pending?limit=5")
 
-        if response.status_code == 200:
-            items = response.json()
-            print(f"\n📋 Found {len(items)} pending feedback items")
-            for item in items:
-                print(
-                    f"   - [{item['category']}] {item['title']} (impact: {item['impact_score']})"
-                )
+            if response.status_code == 200:
+                items = response.json()
+                print(f"\n📋 Found {len(items)} pending feedback items")
+                for item in items:
+                    print(
+                        f"   - [{item['category']}] {item['title']} (impact: {item['impact_score']})"
+                    )
+            else:
+                print(f"❌ Failed to fetch pending: {response.status_code}")
+    except (httpx.ConnectError, httpx.TimeoutException) as e:
+        if os.getenv("CI"):
+            # In CI, skip if production API is not available
+            pytest.skip(f"Production API not available in CI: {e}")
         else:
-            print(f"❌ Failed to fetch pending: {response.status_code}")
+            raise
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.getenv("CI") == "true", reason="Worker metrics not available in CI")
 async def test_worker_metrics():
     """Check worker metrics"""
 
