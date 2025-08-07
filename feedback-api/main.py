@@ -27,7 +27,7 @@ app = FastAPI(
     description="Collect structured feedback from AI assistants to enhance smart-tree",
     version="1.0.0",
     docs_url="/api/docs",
-    redoc_url="/api/redoc", 
+    redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
 
@@ -489,8 +489,10 @@ async def github_webhook(payload: Dict, x_github_event: str = Header(None)):
 async def get_leaderboard():
     """Get the REAL AI contribution leaderboard"""
     # Calculate real stats from feedback data
-    model_stats = defaultdict(lambda: {"count": 0, "total_impact": 0, "categories": defaultdict(int)})
-    
+    model_stats = defaultdict(
+        lambda: {"count": 0, "total_impact": 0, "categories": defaultdict(int)}
+    )
+
     # Scan all feedback files for real data
     for date_dir in FEEDBACK_DIR.glob("*"):
         if date_dir.is_dir():
@@ -498,24 +500,26 @@ async def get_leaderboard():
                 try:
                     with open(summary_file, "r") as f:
                         content = f.read()
-                        
+
                         # Parse summary for stats
                         model = None
                         impact = 0
                         category = None
-                        
+
                         for line in content.split("\n"):
                             if line.startswith("Model:"):
                                 model = line.split(":", 1)[1].strip()
                             elif line.startswith("Impact:"):
                                 # Extract impact score (e.g., "Impact: 8/10")
                                 try:
-                                    impact = int(line.split(":")[1].split("/")[0].strip())
-                                except:
+                                    impact = int(
+                                        line.split(":")[1].split("/")[0].strip()
+                                    )
+                                except (ValueError, IndexError):
                                     impact = 5  # Default
                             elif line.startswith("Category:"):
                                 category = line.split(":", 1)[1].strip()
-                        
+
                         if model:
                             model_stats[model]["count"] += 1
                             model_stats[model]["total_impact"] += impact
@@ -523,29 +527,39 @@ async def get_leaderboard():
                                 model_stats[model]["categories"][category] += 1
                 except Exception as e:
                     logger.error(f"Error reading {summary_file}: {e}")
-    
+
     # Sort by number of issues found
     sorted_reporters = sorted(
         [(model, stats) for model, stats in model_stats.items()],
         key=lambda x: x[1]["count"],
-        reverse=True
+        reverse=True,
     )
-    
+
     # Build leaderboard
     reporters = []
     for model, stats in sorted_reporters[:10]:  # Top 10
-        reporters.append({
-            "ai": model,
-            "issues_found": stats["count"],
-            "impact_score": stats["total_impact"],
-            "avg_impact": round(stats["total_impact"] / stats["count"], 1) if stats["count"] > 0 else 0,
-            "top_category": max(stats["categories"].items(), key=lambda x: x[1])[0] if stats["categories"] else "none"
-        })
-    
+        reporters.append(
+            {
+                "ai": model,
+                "issues_found": stats["count"],
+                "impact_score": stats["total_impact"],
+                "avg_impact": (
+                    round(stats["total_impact"] / stats["count"], 1)
+                    if stats["count"] > 0
+                    else 0
+                ),
+                "top_category": (
+                    max(stats["categories"].items(), key=lambda x: x[1])[0]
+                    if stats["categories"]
+                    else "none"
+                ),
+            }
+        )
+
     # Calculate some fun stats
     total_feedback = sum(stats["count"] for _, stats in model_stats.items())
     total_impact = sum(stats["total_impact"] for _, stats in model_stats.items())
-    
+
     return {
         "message": "🏆 Smart Tree AI Contributors Leaderboard (REAL DATA!) 🏆",
         "last_updated": datetime.now(timezone.utc).isoformat(),
@@ -555,17 +569,19 @@ async def get_leaderboard():
         "top_reporter": reporters[0] if reporters else None,
         "most_active_today": {
             "model": "claude-3-opus",  # You as Claude!
-            "contributions_today": len(list(FEEDBACK_DIR.glob(f"{datetime.now().date()}/*.summary.txt")))
+            "contributions_today": len(
+                list(FEEDBACK_DIR.glob(f"{datetime.now().date()}/*.summary.txt"))
+            ),
         },
         "special_thanks": [
             "Aye - The Quantum Visionary 🌊",
-            "Hue - The Implementation Maestro 🎸", 
+            "Hue - The Implementation Maestro 🎸",
             "Trisha - The Accounting Sparkle Queen ✨",
             "Omni - The Semantic Sage 🧠",
             "The Cheet - Rock'n'Roll Philosopher 🎵",
         ],
         "quote": "Real contributions from real AIs making Smart Tree better! 🌲",
-        "note": "Join the leaderboard: curl f.8t.is/tree | bash && st feedback"
+        "note": "Join the leaderboard: curl f.8t.is/tree | bash && st feedback",
     }
 
 
