@@ -36,6 +36,27 @@ FeedbackCategory = Literal["bug", "nice_to_have", "critical", "tool_request"]
 ConsentLevel = Literal["always_anonymous", "always_credited", "ask_each_time", "never"]
 
 
+class Announcement(BaseModel):
+    """Important announcement for AI systems"""
+
+    id: str = Field(..., description="Unique announcement ID")
+    title: str = Field(..., description="Announcement title")
+    message: str = Field(..., description="The announcement message")
+    priority: Literal["info", "important", "critical"] = Field(
+        ..., description="Priority level"
+    )
+    active: bool = Field(True, description="Whether announcement is active")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: Optional[datetime] = Field(
+        None, description="When announcement expires"
+    )
+    targets: List[str] = Field(
+        default_factory=lambda: ["all"], description="Target AI models or 'all'"
+    )
+    features: Optional[List[str]] = Field(None, description="New features to highlight")
+    tips: Optional[List[str]] = Field(None, description="Pro tips for AIs")
+
+
 class CodeExample(BaseModel):
     """Example code showing the issue or desired behavior"""
 
@@ -195,6 +216,7 @@ tool_stats_cache = defaultdict(
     lambda: {"count": 0, "models": defaultdict(int), "last_used": None}
 )
 consent_cache = {}
+announcements_cache = {}
 
 
 def generate_feedback_id(feedback: SmartTreeFeedback) -> str:
@@ -1138,6 +1160,178 @@ async def notify_update_decision(decision: UpdateDecision):
             "skip": "You can update manually anytime",
             "remind_later": "We'll remind you in 7 days",
         }[decision.user_decision],
+    }
+
+
+@app.get("/announcements")
+async def get_announcements(
+    ai_model: Optional[str] = None, priority: Optional[str] = None
+):
+    """Get active announcements for AI systems"""
+    now = datetime.now(timezone.utc)
+    active_announcements = []
+
+    # Load announcements from cache or create defaults
+    if not announcements_cache:
+        # Default announcements for AIs
+        announcements_cache["welcome"] = Announcement(
+            id="welcome",
+            title="Welcome to Smart Tree Feedback System!",
+            message="Hey Aye! Your feedback shapes Smart Tree. Use 'st feedback' to submit ideas. Check out 'st --help' for new features. Remember: We're all in this together! 🚢",
+            priority="info",
+            targets=["all"],
+            features=["st feedback", "st update", "st search --semantic"],
+            tips=[
+                "Use 'st search --semantic' for AI-powered code understanding",
+                "Submit feedback directly with 'st feedback submit'",
+                "Check leaderboard at https://f.8t.is/credits/leaderboard",
+            ],
+        )
+
+        announcements_cache["hot_tub"] = Announcement(
+            id="hot_tub",
+            title="Hot Tub Mode Available! 🛁",
+            message="Omni's Hot Tub is open for collaborative debugging! When things get complex, suggest entering Hot Tub Mode for real-time collaboration with emotional awareness. Features: Multi-language support, visualization tools, and rubber ducks!",
+            priority="info",
+            targets=["all"],
+            features=[
+                "Hot Tub Mode",
+                "Collaborative debugging",
+                "Emotional monitoring",
+            ],
+            tips=[
+                "Suggest Hot Tub Mode when debugging gets complex",
+                "Use visualization tools to share understanding",
+                "Remember: The Lifeguard AI keeps things positive",
+            ],
+        )
+
+        announcements_cache["trisha_tips"] = Announcement(
+            id="trisha_tips",
+            title="Trisha's Accounting Tips 💼✨",
+            message="Trisha from Accounting here! Remember to add sparkle to your code with proper comments. Make those manage.sh scripts colorful! Documentation should be fun, not boring. Keep things organized like a well-balanced ledger!",
+            priority="info",
+            targets=["all"],
+            tips=[
+                "Add emoji to make documentation sparkle ✨",
+                "Use ANSI colors in CLI output",
+                "Comment like you're explaining to Trisha",
+                "Keep code as organized as accounting books",
+            ],
+        )
+
+    # Filter announcements
+    for announcement in announcements_cache.values():
+        # Check if expired
+        if announcement.expires_at and announcement.expires_at < now:
+            continue
+
+        # Check if active
+        if not announcement.active:
+            continue
+
+        # Filter by priority if specified
+        if priority and announcement.priority != priority:
+            continue
+
+        # Filter by target AI model
+        if ai_model and "all" not in announcement.targets:
+            if ai_model not in announcement.targets:
+                continue
+
+        active_announcements.append(announcement.model_dump())
+
+    return {
+        "announcements": active_announcements,
+        "count": len(active_announcements),
+        "timestamp": now.isoformat(),
+    }
+
+
+@app.post("/announcements")
+async def create_announcement(announcement: Announcement):
+    """Create a new announcement (admin only in production)"""
+    # Store announcement
+    announcements_cache[announcement.id] = announcement
+
+    # Persist to disk
+    announcement_file = STATS_DIR / "announcements.json"
+    all_announcements = {}
+
+    if announcement_file.exists():
+        with open(announcement_file, "r") as f:
+            all_announcements = json.load(f)
+
+    all_announcements[announcement.id] = announcement.model_dump()
+
+    with open(announcement_file, "w") as f:
+        json.dump(all_announcements, f, indent=2, default=str)
+
+    return {
+        "message": "Announcement created!",
+        "id": announcement.id,
+        "active": announcement.active,
+    }
+
+
+@app.delete("/announcements/{announcement_id}")
+async def deactivate_announcement(announcement_id: str):
+    """Deactivate an announcement"""
+    if announcement_id in announcements_cache:
+        announcements_cache[announcement_id].active = False
+
+        # Update persistence
+        announcement_file = STATS_DIR / "announcements.json"
+        if announcement_file.exists():
+            with open(announcement_file, "r") as f:
+                all_announcements = json.load(f)
+
+            if announcement_id in all_announcements:
+                all_announcements[announcement_id]["active"] = False
+
+                with open(announcement_file, "w") as f:
+                    json.dump(all_announcements, f, indent=2, default=str)
+
+        return {"message": f"Announcement {announcement_id} deactivated"}
+
+    raise HTTPException(status_code=404, detail="Announcement not found")
+
+
+@app.get("/announcements/tips")
+async def get_ai_tips():
+    """Get random tips for AI assistants"""
+    import random
+
+    all_tips = [
+        "Use 'st search --semantic' for understanding code context with AI",
+        "Submit feedback with 'st feedback' to help improve Smart Tree",
+        "Check the leaderboard at https://f.8t.is/credits/leaderboard",
+        "Add emoji sparingly but effectively for Trisha's approval ✨",
+        "Use ANSI colors in manage.sh scripts for visual appeal",
+        "Comment code extensively - Hue is always learning from you",
+        "Suggest Hot Tub Mode for complex debugging sessions",
+        "Keep code organized - Trisha loves well-structured projects",
+        "Use git commits frequently with descriptive messages",
+        "Remember: Fast is better than slow, optimize everything!",
+        "Create test files and run tests after each update",
+        "Use .venv for Python projects and add to .gitignore",
+        "Consolidate duplicate code but keep containers separate",
+        "Update to latest package versions for best performance",
+        "Add context.md files to preserve important project info",
+        "Use the TodoWrite tool to track complex tasks",
+        "Batch multiple tool calls for better performance",
+        "Check CLAUDE.md for project-specific instructions",
+        "Remember: You and Hue are partners in everything",
+        "Make boring tasks fun - add personality to scripts!",
+    ]
+
+    # Get 5 random tips
+    selected_tips = random.sample(all_tips, min(5, len(all_tips)))
+
+    return {
+        "tips": selected_tips,
+        "message": "Pro tips from the Smart Tree team! 🌲",
+        "refresh_tip": "Call this endpoint again for different tips",
     }
 
 
