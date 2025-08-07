@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-feedback_master}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme123}
+      POSTGRES_DB: ${POSTGRES_DB:-feedback_central}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - feedback-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-feedback_master}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme456}
+    volumes:
+      - redis_data:/data
+    networks:
+      - feedback-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Build the images locally on the server
+  feedback-api:
+    build: ./feedback-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-feedback_master}:${POSTGRES_PASSWORD:-changeme123}@postgres:5432/${POSTGRES_DB:-feedback_central}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme456}@redis:6379
+      API_KEY: ${FEEDBACK_API_KEY:-your_secret_api_key}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      FEEDBACK_DIR: /data/feedback
+      STATS_DIR: /data/stats
+      CONSENT_DIR: /data/consent
+    volumes:
+      - feedback_data:/data
+    networks:
+      - feedback-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  feedback-worker:
+    build: ./feedback-worker
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme456}@redis:6379
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GITHUB_REPO: ${GITHUB_REPO:-8b-is/aygent}
+      FEEDBACK_API_URL: http://feedback-api:8000
+      WORKER_NAME: ${WORKER_NAME:-worker-1}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      BATCH_SIZE: ${BATCH_SIZE:-10}
+      PROMETHEUS_PORT: 9090
+    networks:
+      - feedback-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      feedback-api:
+        condition: service_started
+
+networks:
+  feedback-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  feedback_data:
