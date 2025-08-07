@@ -38,7 +38,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/8b-is/aygent-feedback-api
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-api
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -55,8 +55,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/8b-is/aygent-feedback-api:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/8b-is/aygent-feedback-api:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-api:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-api:buildcache,mode=max
 
   build-feedback-worker:
     runs-on: ubuntu-latest
@@ -81,7 +81,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/8b-is/aygent-feedback-worker
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-worker
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -98,8 +98,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/8b-is/aygent-feedback-worker:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/8b-is/aygent-feedback-worker:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-worker:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ github.repository_owner }}/aygent-feedback-worker:buildcache,mode=max
 
   deploy:
     needs: [build-feedback-api, build-feedback-worker]
