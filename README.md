@@ -317,3 +317,7 @@ Happy coding! 🎉
 *Built with love, laughter, and an excessive amount of coffee by the dream team at 8b.is*
 
 **Aye & Hue - Making feedback processing fun since 2025!**
+
+[![Build and Push Docker Images](https://github.com/8b-is/aygent/actions/workflows/build-and-push.yml/badge.svg)](https://github.com/8b-is/aygent/actions/workflows/build-and-push.yml)
+
+[![Test Suite](https://github.com/8b-is/aygent/actions/workflows/test.yml/badge.svg)](https://github.com/8b-is/aygent/actions/workflows/test.yml)

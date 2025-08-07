@@ -15,6 +15,7 @@ import hashlib
 
 import aiohttp
 import redis.asyncio as redis
+import redis.asyncio as aioredis  # Alias for compatibility
 from github import Github, GithubException
 import uvloop
 from prometheus_client import Counter, Histogram, start_http_server
@@ -70,6 +71,14 @@ class FeedbackWorker:
         self.redis = None
         self.session = None
 
+        # Initialize metrics
+        self.metrics = {
+            "processed": feedback_processed,
+            "errors": feedback_errors,
+            "created": github_issues_created,
+            "duplicates": duplicate_detected,
+        }
+        
         # Category patterns
         self.bug_patterns = [
             r"error",
@@ -84,7 +93,7 @@ class FeedbackWorker:
             r"panic",
         ]
 
-        self.feature_patterns = [
+        self.enhancement_patterns = self.feature_patterns = [
             r"add",
             r"feature",
             r"enhance",
@@ -96,6 +105,16 @@ class FeedbackWorker:
             r"request",
         ]
 
+        self.performance_patterns = [
+            r"slow",
+            r"performance",
+            r"speed",
+            r"lag",
+            r"delay",
+            r"optimize",
+            r"faster",
+        ]
+        
         self.teleportation_patterns = [
             r"quantum",
             r"ai",
@@ -107,9 +126,18 @@ class FeedbackWorker:
             r"revolutionary",
         ]
 
+    async def connect(self):
+        """Connect to Redis (for testing compatibility)"""
+        self.redis = await redis.from_url(self.redis_url)
+        
+    async def disconnect(self):
+        """Disconnect from Redis (for testing compatibility)"""
+        if self.redis:
+            await self.redis.close()
+            
     async def setup(self):
         """Initialize connections"""
-        self.redis = await redis.from_url(self.redis_url)
+        await self.connect()
         self.session = aiohttp.ClientSession()
 
         # Start metrics server
@@ -121,9 +149,30 @@ class FeedbackWorker:
         """Cleanup connections"""
         if self.session:
             await self.session.close()
-        if self.redis:
-            await self.redis.close()
+        await self.disconnect()
 
+    def prioritize_feedback(self, feedback: Dict) -> str:
+        """Prioritize feedback based on impact and frequency scores"""
+        impact = feedback.get("impact_score", 0)
+        frequency = feedback.get("frequency_score", 0)
+        category = feedback.get("category", "")
+        
+        # Calculate priority score
+        score = (impact * 0.6) + (frequency * 0.4)
+        
+        # Bugs get a boost
+        if category == "bug":
+            score += 2
+        
+        if score >= 8:
+            return "critical"
+        elif score >= 6:
+            return "high"
+        elif score >= 4:
+            return "medium"
+        else:
+            return "low"
+    
     def categorize_feedback(self, feedback: Dict) -> str:
         """Categorize feedback as bug, feature, or teleportation goal"""
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
@@ -133,6 +182,15 @@ class FeedbackWorker:
             if re.search(pattern, text):
                 return "bug"
 
+        # Check for performance patterns
+        for pattern in self.performance_patterns:
+            if re.search(pattern, text):
+                return "performance"
+        
+        # Check for question patterns
+        if any(word in text for word in ["how", "what", "why", "where", "when", "can you", "help", "?"]):
+            return "question"
+        
         # Check for teleportation patterns
         for pattern in self.teleportation_patterns:
             if re.search(pattern, text):
@@ -141,10 +199,10 @@ class FeedbackWorker:
         # Check for feature patterns
         for pattern in self.feature_patterns:
             if re.search(pattern, text):
-                return "feature"
+                return "enhancement"
 
-        # Default to feature
-        return "feature"
+        # Default to enhancement
+        return "enhancement"
 
     def generate_fingerprint(self, feedback: Dict) -> str:
         """Generate fingerprint for duplicate detection"""
