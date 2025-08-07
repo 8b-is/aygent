@@ -92,7 +92,9 @@ async def test_pending_endpoint():
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(os.getenv("CI") == "true", reason="Worker metrics not available in CI")
+@pytest.mark.skipif(
+    os.getenv("CI") == "true", reason="Worker metrics not available in CI"
+)
 async def test_worker_metrics():
     """Check worker metrics"""
 
