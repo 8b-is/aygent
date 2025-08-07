@@ -3,3 +3,8 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.3
 python-multipart==0.0.18
 httpx==0.28.1
+
+# Testing dependencies
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0

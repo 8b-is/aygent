@@ -51,11 +51,20 @@ class FeedbackWorker:
         self.redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
         self.github_repo = os.environ.get("GITHUB_REPO", "8b-is/smart-tree")
 
-        if not self.github_token:
-            raise ValueError("GITHUB_TOKEN environment variable required")
-
-        self.gh = Github(self.github_token)
-        self.repo = self.gh.get_repo(self.github_repo)
+        # Initialize GitHub client (optional for local testing)
+        self.gh = None
+        self.repo = None
+        
+        if self.github_token and self.github_token != "fake_token_for_testing":
+            try:
+                self.gh = Github(self.github_token)
+                self.repo = self.gh.get_repo(self.github_repo)
+                print(f"✅ Connected to GitHub repo: {self.github_repo}")
+            except Exception as e:
+                print(f"⚠️ GitHub connection failed: {e}")
+                print("Running in local mode without GitHub integration")
+        else:
+            print("⚠️ No valid GitHub token provided - running in local mode")
         self.redis = None
         self.session = None
 
@@ -195,6 +204,10 @@ class FeedbackWorker:
 
     async def create_github_issue(self, feedback: Dict, category: str) -> Optional[int]:
         """Create GitHub issue from feedback"""
+        if not self.repo:
+            logger.warning("GitHub repo not configured - skipping issue creation")
+            return None
+            
         try:
             # Check for duplicates
             duplicate_issue = await self.check_duplicate(feedback)
