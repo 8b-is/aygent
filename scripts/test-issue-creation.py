@@ -11,8 +11,11 @@ from datetime import datetime
 load_dotenv()
 
 token = os.environ.get('GITHUB_TOKEN')
-repo_name = os.environ.get('GITHUB_REPO', '8bit-wraith/st-aygent')
-g = Github(token)
+repo_name = os.environ.get('GITHUB_REPO', '8b-is/aygent')
+# Use auth=Auth.Token for fine-grained PATs
+from github import Github, Auth
+auth = Auth.Token(token)
+g = Github(auth=auth)
 
 print(f"Authenticated as: {g.get_user().login}")
 
@@ -66,7 +69,7 @@ Aye, Aye! 🚢
     print(f"   State: {issue.state}")
     
     print("\n🎉 GitHub integration is working perfectly!")
-    print("The feedback worker can now create issues in 8b-is/aygent")
+    print(f"The feedback worker can now create issues in {repo_name}")
     
 except Exception as e:
     print(f"❌ Error: {e}")

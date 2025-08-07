@@ -7,7 +7,7 @@ Collects enhancement requests from AI assistants using smart-tree MCP.
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Literal, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import zlib
@@ -739,7 +739,7 @@ async def notify_update_decision(decision: UpdateDecision):
     """Track user decisions on updates for better UX"""
     # Log the decision for analytics
     update_decision = {
-        "timestamp": datetime.utcnow(),
+        "timestamp": datetime.now(timezone.utc),
         "current_version": decision.current_version,
         "latest_version": decision.latest_version,
         "decision": decision.user_decision,
@@ -747,7 +747,7 @@ async def notify_update_decision(decision: UpdateDecision):
     }
 
     # Save to stats
-    stats_file = STATS_DIR / f"update_decisions_{datetime.utcnow().date()}.json"
+    stats_file = STATS_DIR / f"update_decisions_{datetime.now(timezone.utc).date()}.json"
     decisions = []
     if stats_file.exists():
         with open(stats_file, "r") as f:
@@ -764,7 +764,7 @@ async def notify_update_decision(decision: UpdateDecision):
             "update": "Run the auto-update command provided",
             "skip": "You can update manually anytime",
             "remind_later": "We'll remind you in 7 days",
-        }[user_decision],
+        }[decision.user_decision],
     }
 
 
