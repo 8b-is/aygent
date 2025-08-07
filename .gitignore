@@ -1,8 +1,8 @@
-# Aye & Hue's Comprehensive .gitignore =«
+# Aye & Hue's Comprehensive .gitignore
 # "Keeping the mess out since 2025!" - Trisha from Accounting
 
 ###############################
-# Python Stuff =
+# Python Stuff
 ###############################
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -118,7 +118,7 @@ secrets/
 credentials/
 
 ###############################
-# Database & Backups =¾
+# Database & Backups =ï¿½
 ###############################
 # Database dumps
 *.sql
@@ -138,7 +138,7 @@ backups/
 !scripts/backup-*.sh
 
 ###############################
-# IDE & Editor Files =»
+# IDE & Editor Files =ï¿½
 ###############################
 # VS Code (Hue's favorite)
 .vscode/
@@ -170,7 +170,7 @@ backups/
 ._*
 
 ###############################
-# Logs & Temporary Files =Ý
+# Logs & Temporary Files =ï¿½
 ###############################
 # Log files
 *.log
@@ -188,7 +188,7 @@ temp/
 .tmp/
 
 ###############################
-# Node.js (if we add any) =æ
+# Node.js (if we add any) =ï¿½
 ###############################
 node_modules/
 jspm_packages/
@@ -199,7 +199,7 @@ jspm_packages/
 .yarn-integrity
 
 ###############################
-# Testing & Coverage >ê
+# Testing & Coverage >ï¿½
 ###############################
 # Test reports
 test-results/
@@ -208,7 +208,7 @@ coverage/
 .nyc_output/
 
 ###############################
-# OS Generated Files =¥
+# OS Generated Files =ï¿½
 ###############################
 # Windows
 Thumbs.db
@@ -222,7 +222,7 @@ $RECYCLE.BIN/
 .Trash-*
 
 ###############################
-# Project Specific <¯
+# Project Specific <ï¿½
 ###############################
 # Generated files
 generated/
@@ -247,7 +247,7 @@ staticfiles/
 static_collected/
 
 ###############################
-# Monitoring & Metrics =Ê
+# Monitoring & Metrics =ï¿½
 ###############################
 # Prometheus data
 prometheus-data/
@@ -259,7 +259,7 @@ grafana-data/
 metrics-export/
 
 ###############################
-# Documentation Build =Ú
+# Documentation Build =ï¿½
 ###############################
 # Sphinx documentation
 docs/_build/
@@ -270,7 +270,7 @@ docs/_templates/
 site/
 
 ###############################
-# Miscellaneous <²
+# Miscellaneous <ï¿½
 ###############################
 # Compressed files (unless needed)
 *.zip
@@ -295,7 +295,7 @@ hot-tub-session-*.log
 rubber-duck-debug/
 
 ###############################
-# Security Scans =á
+# Security Scans =ï¿½
 ###############################
 # Security scan results
 security-scan-results/
@@ -305,4 +305,4 @@ vulnerability-report/
 !security-policies/
 
 # End of .gitignore
-# Remember: When in doubt, keep it out! <‰
+# Remember: When in doubt, keep it out! <ï¿½
