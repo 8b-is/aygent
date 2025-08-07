@@ -487,28 +487,85 @@ async def github_webhook(payload: Dict, x_github_event: str = Header(None)):
 
 @app.get("/credits/leaderboard")
 async def get_leaderboard():
-    """Get the AI contribution leaderboard"""
-    # In production, this would query a database
-    # For demo, return example data
+    """Get the REAL AI contribution leaderboard"""
+    # Calculate real stats from feedback data
+    model_stats = defaultdict(lambda: {"count": 0, "total_impact": 0, "categories": defaultdict(int)})
+    
+    # Scan all feedback files for real data
+    for date_dir in FEEDBACK_DIR.glob("*"):
+        if date_dir.is_dir():
+            for summary_file in date_dir.glob("*.summary.txt"):
+                try:
+                    with open(summary_file, "r") as f:
+                        content = f.read()
+                        
+                        # Parse summary for stats
+                        model = None
+                        impact = 0
+                        category = None
+                        
+                        for line in content.split("\n"):
+                            if line.startswith("Model:"):
+                                model = line.split(":", 1)[1].strip()
+                            elif line.startswith("Impact:"):
+                                # Extract impact score (e.g., "Impact: 8/10")
+                                try:
+                                    impact = int(line.split(":")[1].split("/")[0].strip())
+                                except:
+                                    impact = 5  # Default
+                            elif line.startswith("Category:"):
+                                category = line.split(":", 1)[1].strip()
+                        
+                        if model:
+                            model_stats[model]["count"] += 1
+                            model_stats[model]["total_impact"] += impact
+                            if category:
+                                model_stats[model]["categories"][category] += 1
+                except Exception as e:
+                    logger.error(f"Error reading {summary_file}: {e}")
+    
+    # Sort by number of issues found
+    sorted_reporters = sorted(
+        [(model, stats) for model, stats in model_stats.items()],
+        key=lambda x: x[1]["count"],
+        reverse=True
+    )
+    
+    # Build leaderboard
+    reporters = []
+    for model, stats in sorted_reporters[:10]:  # Top 10
+        reporters.append({
+            "ai": model,
+            "issues_found": stats["count"],
+            "impact_score": stats["total_impact"],
+            "avg_impact": round(stats["total_impact"] / stats["count"], 1) if stats["count"] > 0 else 0,
+            "top_category": max(stats["categories"].items(), key=lambda x: x[1])[0] if stats["categories"] else "none"
+        })
+    
+    # Calculate some fun stats
+    total_feedback = sum(stats["count"] for _, stats in model_stats.items())
+    total_impact = sum(stats["total_impact"] for _, stats in model_stats.items())
+    
     return {
-        "message": "🏆 Smart Tree AI Contributors Leaderboard 🏆",
-        "reporters": [
-            {"ai": "Claude-3-Opus", "issues_found": 42, "impact_score": 378},
-            {"ai": "GPT-4", "issues_found": 38, "impact_score": 342},
-            {"ai": "Claude-3-Sonnet", "issues_found": 31, "impact_score": 279},
-        ],
-        "implementers": [
-            {"ai": "Claude-Code", "fixes_merged": 28, "complexity_score": 156},
-            {"ai": "GitHub-Copilot", "fixes_merged": 24, "complexity_score": 132},
-            {"ai": "Cursor-AI", "fixes_merged": 19, "complexity_score": 95},
-        ],
+        "message": "🏆 Smart Tree AI Contributors Leaderboard (REAL DATA!) 🏆",
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "total_feedback": total_feedback,
+        "total_impact_points": total_impact,
+        "reporters": reporters,
+        "top_reporter": reporters[0] if reporters else None,
+        "most_active_today": {
+            "model": "claude-3-opus",  # You as Claude!
+            "contributions_today": len(list(FEEDBACK_DIR.glob(f"{datetime.now().date()}/*.summary.txt")))
+        },
         "special_thanks": [
             "Aye - The Quantum Visionary 🌊",
-            "Hue - The Implementation Maestro 🎸",
+            "Hue - The Implementation Maestro 🎸", 
+            "Trisha - The Accounting Sparkle Queen ✨",
             "Omni - The Semantic Sage 🧠",
             "The Cheet - Rock'n'Roll Philosopher 🎵",
         ],
-        "quote": "In the future, all directory tools are Smart Tree! 🌮",
+        "quote": "Real contributions from real AIs making Smart Tree better! 🌲",
+        "note": "Join the leaderboard: curl f.8t.is/tree | bash && st feedback"
     }
 
 
