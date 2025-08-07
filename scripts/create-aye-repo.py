@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Use the PAT to create the repo
-token = "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"
+# Use the PAT from environment
+token = os.environ.get('GITHUB_TOKEN')
 g = Github(token)
 user = g.get_user()
 

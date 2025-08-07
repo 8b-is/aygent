@@ -341,7 +341,7 @@ class FeedbackWorker:
             feedback_errors.inc()
             return None
 
-    async def process_feedback(self, feedback: Dict):
+    async def process_feedback(self, feedback: Dict) -> Optional[Dict]:
         """Process a single feedback item"""
         with processing_time.time():
             try:
@@ -353,6 +353,13 @@ class FeedbackWorker:
 
                 # Create GitHub issue
                 issue_number = await self.create_github_issue(feedback, category)
+
+                result = {
+                    "id": feedback.get("id"),
+                    "category": category,
+                    "issue_number": issue_number,
+                    "processed": True,
+                }
 
                 if issue_number:
                     # Mark as processed in API
@@ -370,6 +377,7 @@ class FeedbackWorker:
                             )
 
                 feedback_processed.inc()
+                return result
 
             except Exception as e:
                 logger.error(f"Error processing feedback: {e}")
@@ -377,6 +385,7 @@ class FeedbackWorker:
 
                 # Store in Redis for retry
                 await self.redis.lpush("feedback:retry", json.dumps(feedback))
+                return None
 
     async def fetch_pending_feedback(self) -> List[Dict]:
         """Fetch pending feedback from API"""
