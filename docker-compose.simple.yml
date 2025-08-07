@@ -63,7 +63,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-changeme456}@redis:6379
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GITHUB_REPO: ${GITHUB_REPO:-8b-is/aygent}
-      FEEDBACK_API_URL: http://feedback-api:8000
+      FEEDBACK_API_URL: http://feedback-api:8420
       WORKER_NAME: ${WORKER_NAME:-worker-1}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       BATCH_SIZE: ${BATCH_SIZE:-10}
