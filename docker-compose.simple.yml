@@ -37,7 +37,7 @@ services:
     build: ./feedback-api
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8000:8420"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-feedback_master}:${POSTGRES_PASSWORD:-changeme123}@postgres:5432/${POSTGRES_DB:-feedback_central}
       REDIS_URL: redis://:${REDIS_PASSWORD:-changeme456}@redis:6379
