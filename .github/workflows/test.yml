@@ -116,7 +116,7 @@ jobs:
       - name: Run tests
         env:
           REDIS_URL: redis://localhost:6379
-          GITHUB_TOKEN: ${{ secrets.AYGENT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: 8b-is/aygent
         run: |
           cd feedback-worker
