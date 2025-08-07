@@ -16,6 +16,8 @@ from pathlib import Path
 import uvicorn
 from collections import defaultdict
 import logging
+import time
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
@@ -680,10 +682,6 @@ async def get_requested_tools():
         "requests": tool_requests[:20],  # Latest 20
         "note": "These tools would make AI assistants more productive!",
     }
-
-
-import time
-from functools import lru_cache
 
 
 # Cache for 5 minutes (300 seconds)

@@ -4,10 +4,11 @@ Test script for feedback worker
 """
 
 import asyncio
-
+import pytest
 import httpx
 
 
+@pytest.mark.asyncio
 async def test_feedback_submission():
     """Test submitting feedback to the API"""
 
@@ -54,6 +55,7 @@ async def test_feedback_submission():
             return None
 
 
+@pytest.mark.asyncio
 async def test_pending_endpoint():
     """Test fetching pending feedback"""
 
@@ -71,6 +73,7 @@ async def test_pending_endpoint():
             print(f"❌ Failed to fetch pending: {response.status_code}")
 
 
+@pytest.mark.asyncio
 async def test_worker_metrics():
     """Check worker metrics"""
 
