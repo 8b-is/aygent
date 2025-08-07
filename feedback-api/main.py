@@ -747,7 +747,9 @@ async def notify_update_decision(decision: UpdateDecision):
     }
 
     # Save to stats
-    stats_file = STATS_DIR / f"update_decisions_{datetime.now(timezone.utc).date()}.json"
+    stats_file = (
+        STATS_DIR / f"update_decisions_{datetime.now(timezone.utc).date()}.json"
+    )
     decisions = []
     if stats_file.exists():
         with open(stats_file, "r") as f:

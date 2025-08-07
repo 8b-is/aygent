@@ -160,8 +160,12 @@ class TestWorkerMetrics:
 @pytest.mark.asyncio
 async def test_worker_redis_connection():
     """Test Redis connection handling"""
-    with patch("worker.aioredis.from_url") as mock_redis:
-        mock_redis.return_value = AsyncMock()
+    mock_redis_instance = AsyncMock()
+    mock_redis_instance.close = AsyncMock()
+
+    with patch(
+        "worker.aioredis.from_url", return_value=mock_redis_instance
+    ) as mock_redis:
         with patch("worker.Github"):
             worker = FeedbackWorker()
             worker.repo = None
@@ -173,6 +177,7 @@ async def test_worker_redis_connection():
 
             # Test disconnection
             await worker.disconnect()
+            mock_redis_instance.close.assert_called_once()
 
 
 def test_feedback_formatting():

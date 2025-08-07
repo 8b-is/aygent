@@ -57,7 +57,7 @@ class FeedbackWorker:
         # Initialize GitHub client (optional for local testing)
         self.gh = None
         self.repo = None
-        
+
         if self.github_token and self.github_token != "fake_token_for_testing":
             try:
                 self.gh = Github(self.github_token)
@@ -78,7 +78,7 @@ class FeedbackWorker:
             "created": github_issues_created,
             "duplicates": duplicate_detected,
         }
-        
+
         # Category patterns
         self.bug_patterns = [
             r"error",
@@ -114,7 +114,7 @@ class FeedbackWorker:
             r"optimize",
             r"faster",
         ]
-        
+
         self.teleportation_patterns = [
             r"quantum",
             r"ai",
@@ -129,12 +129,12 @@ class FeedbackWorker:
     async def connect(self):
         """Connect to Redis (for testing compatibility)"""
         self.redis = await redis.from_url(self.redis_url)
-        
+
     async def disconnect(self):
         """Disconnect from Redis (for testing compatibility)"""
         if self.redis:
             await self.redis.close()
-            
+
     async def setup(self):
         """Initialize connections"""
         await self.connect()
@@ -156,14 +156,14 @@ class FeedbackWorker:
         impact = feedback.get("impact_score", 0)
         frequency = feedback.get("frequency_score", 0)
         category = feedback.get("category", "")
-        
+
         # Calculate priority score
         score = (impact * 0.6) + (frequency * 0.4)
-        
+
         # Bugs get a boost
         if category == "bug":
             score += 2
-        
+
         if score >= 8:
             return "critical"
         elif score >= 6:
@@ -172,7 +172,7 @@ class FeedbackWorker:
             return "medium"
         else:
             return "low"
-    
+
     def categorize_feedback(self, feedback: Dict) -> str:
         """Categorize feedback as bug, feature, or teleportation goal"""
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
@@ -186,11 +186,14 @@ class FeedbackWorker:
         for pattern in self.performance_patterns:
             if re.search(pattern, text):
                 return "performance"
-        
+
         # Check for question patterns
-        if any(word in text for word in ["how", "what", "why", "where", "when", "can you", "help", "?"]):
+        if any(
+            word in text
+            for word in ["how", "what", "why", "where", "when", "can you", "help", "?"]
+        ):
             return "question"
-        
+
         # Check for teleportation patterns
         for pattern in self.teleportation_patterns:
             if re.search(pattern, text):
@@ -267,7 +270,7 @@ class FeedbackWorker:
         if not self.repo:
             logger.warning("GitHub repo not configured - skipping issue creation")
             return None
-            
+
         try:
             # Check for duplicates
             duplicate_issue = await self.check_duplicate(feedback)
