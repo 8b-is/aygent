@@ -27,7 +27,7 @@ app = FastAPI(
     description="Collect structured feedback from AI assistants to enhance smart-tree",
     version="1.0.0",
     docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    redoc_url="/api/redoc", 
     openapi_url="/api/openapi.json",
 )
 
