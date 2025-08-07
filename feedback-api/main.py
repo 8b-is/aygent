@@ -5,6 +5,7 @@ Collects enhancement requests from AI assistants using smart-tree MCP.
 """
 
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Literal, Any
 from datetime import datetime, timezone
@@ -735,14 +736,19 @@ def get_cached_version(cache_key: int):
                         if len(features) >= 6:
                             break
 
+            # Generate proper update commands
+            tag_name = release.get("tag_name", f"v{version}")
+
             return {
                 "version": version,
                 "release_date": release.get("published_at", "").split("T")[0],
-                "download_url": release.get("assets", [{}])[0].get(
-                    "browser_download_url",
-                    f"https://github.com/8b-is/smart-tree/releases/tag/{release.get('tag_name')}",
-                ),
+                "download_url": f"https://github.com/8b-is/smart-tree/releases/tag/{tag_name}",
                 "release_notes_url": release.get("html_url"),
+                "update_commands": {
+                    "cargo": f"cargo install --git https://github.com/8b-is/smart-tree --tag {tag_name}",
+                    "self_update": f"st update --version {version}",
+                    "curl": f"curl -fsSL https://f.8t.is/api/install | bash -s {version}",
+                },
                 "features": (
                     features[:6]
                     if features
@@ -767,6 +773,11 @@ def get_cached_version(cache_key: int):
         "release_date": "2025-08-06",
         "download_url": "https://github.com/8b-is/smart-tree/releases/latest",
         "release_notes_url": "https://github.com/8b-is/smart-tree/releases",
+        "update_commands": {
+            "cargo": "cargo install --git https://github.com/8b-is/smart-tree",
+            "self_update": "st update",
+            "curl": "curl -fsSL https://f.8t.is/api/install | bash",
+        },
         "features": [
             "MCP tools for AI assistants",
             "Feedback system integration",
@@ -782,10 +793,132 @@ def get_cached_version(cache_key: int):
 
 @app.get("/smart-tree/latest")
 async def get_latest_version():
-    """Get latest Smart Tree version info (cached for 1 hour)"""
-    # Use current hour as cache key for 1-hour caching
-    cache_key = int(time.time() // 3600)
+    """Get latest Smart Tree version info (cached for 5 minutes)"""
+    # Use current 5-minute window as cache key for 5-minute caching
+    cache_key = int(time.time() // 300)
     return get_cached_version(cache_key)
+
+
+@app.get("/install", response_class=PlainTextResponse)
+async def get_install_script(version: Optional[str] = None):
+    """Get Smart Tree installation/update script"""
+
+    install_script = """#!/bin/bash
+# Smart Tree Installation Script 🌲
+# Powered by ST-AYGENT Feedback System
+
+set -e
+
+YELLOW='\\033[1;33m'
+GREEN='\\033[0;32m'
+RED='\\033[0;31m'
+NC='\\033[0m' # No Color
+
+echo -e "${GREEN}🌲 Smart Tree Installer${NC}"
+echo "========================"
+
+VERSION="${1:-latest}"
+
+# Detect OS and architecture
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+    x86_64) ARCH="x86_64" ;;
+    aarch64|arm64) ARCH="aarch64" ;;
+    *) echo -e "${RED}❌ Unsupported architecture: $ARCH${NC}"; exit 1 ;;
+esac
+
+echo -e "${YELLOW}📦 Installing Smart Tree $VERSION for $OS-$ARCH...${NC}"
+
+# Check if cargo is available
+if command -v cargo &> /dev/null; then
+    echo -e "${GREEN}✅ Cargo found, building from source...${NC}"
+    INSTALL_METHOD="cargo"
+    
+    if [ "$VERSION" = "latest" ]; then
+        cargo install --git https://github.com/8b-is/smart-tree
+    else
+        cargo install --git https://github.com/8b-is/smart-tree --tag "v$VERSION"
+    fi
+    
+    # Record installation location
+    ST_PATH=$(which st 2>/dev/null || echo "$HOME/.cargo/bin/st")
+    
+    echo -e "${GREEN}✨ Smart Tree installed successfully!${NC}"
+    echo -e "${YELLOW}📍 Installed at: $ST_PATH${NC}"
+    echo -e "${YELLOW}Run 'st --version' to verify installation${NC}"
+else
+    echo -e "${YELLOW}⚠️  Cargo not found. Trying binary installation...${NC}"
+    INSTALL_METHOD="binary"
+    
+    # Fetch latest version info
+    VERSION_INFO=$(curl -s https://f.8t.is/api/smart-tree/latest)
+    
+    if [ "$VERSION" = "latest" ]; then
+        VERSION=$(echo "$VERSION_INFO" | grep -o '"version":"[^"]*' | cut -d'"' -f4)
+    fi
+    
+    # Download binary from GitHub releases
+    BINARY_URL="https://github.com/8b-is/smart-tree/releases/download/v${VERSION}/smart-tree-${OS}-${ARCH}"
+    
+    echo -e "${YELLOW}📥 Downloading from: $BINARY_URL${NC}"
+    
+    # Create local bin directory if it doesn't exist
+    mkdir -p ~/.local/bin
+    
+    # Download and install
+    if curl -fsSL "$BINARY_URL" -o ~/.local/bin/st; then
+        chmod +x ~/.local/bin/st
+        
+        # Add to PATH if not already there
+        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc 2>/dev/null || true
+            echo -e "${YELLOW}📝 Added ~/.local/bin to PATH${NC}"
+            echo -e "${YELLOW}   Run 'source ~/.bashrc' to update current session${NC}"
+        fi
+        
+        echo -e "${GREEN}✨ Smart Tree installed successfully!${NC}"
+        echo -e "${YELLOW}Run '~/.local/bin/st --version' to verify installation${NC}"
+    else
+        echo -e "${RED}❌ Failed to download binary${NC}"
+        echo -e "${YELLOW}Please install Rust and try again:${NC}"
+        echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        exit 1
+    fi
+fi
+
+# Set up feedback integration and installation info
+echo -e "${GREEN}🔗 Configuring Smart Tree...${NC}"
+
+# Find the actual st binary location
+ST_BINARY=$(which st 2>/dev/null || echo "$HOME/.local/bin/st")
+if [ -f "$HOME/.cargo/bin/st" ]; then
+    ST_BINARY="$HOME/.cargo/bin/st"
+fi
+
+# Configure Smart Tree
+"$ST_BINARY" config set feedback.api_url "https://f.8t.is/api" 2>/dev/null || true
+"$ST_BINARY" config set feedback.enabled true 2>/dev/null || true
+"$ST_BINARY" config set install.path "$ST_BINARY" 2>/dev/null || true
+"$ST_BINARY" config set install.method "${INSTALL_METHOD:-cargo}" 2>/dev/null || true
+"$ST_BINARY" config set install.version "$VERSION" 2>/dev/null || true
+"$ST_BINARY" config set install.date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" 2>/dev/null || true
+
+echo -e "${GREEN}🎉 Installation complete!${NC}"
+echo ""
+echo "Smart Tree MCP Tools for AI Assistants"
+echo "Report issues: st feedback"
+echo "Check updates: st update"
+echo ""
+echo -e "${GREEN}Aye, Aye! Ready to sail! 🚢${NC}"
+"""
+
+    if version:
+        install_script = install_script.replace("${1:-latest}", f"${{1:-{version}}}")
+
+    return install_script
 
 
 @app.get("/version/check/{current_version}")
