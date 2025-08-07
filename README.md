@@ -44,8 +44,8 @@ For when you want to deploy to Hetzner and feel fancy.
 
 ```bash
 # Clone this magnificent repository
-git clone <your-repo-url>
-cd st-aygent
+git clone https://github.com/8b-is/aygent.git
+cd aygent
 
 # Create your environment file (don't forget to fill it out!)
 cp .env.example .env

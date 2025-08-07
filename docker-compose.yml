@@ -59,7 +59,7 @@ services:
 
   # Feedback API - Where feedback comes to party
   feedback-api:
-    image: g.8b.is/st-aygent/feedback-api:${TAG:-latest}
+    image: ghcr.io/8b-is/aygent-feedback-api:${TAG:-latest}
     build: 
       context: ./feedback-api
       dockerfile: Dockerfile
@@ -96,14 +96,14 @@ services:
 
   # Feedback Worker - The hardworking processor
   feedback-worker:
-    image: g.8b.is/st-aygent/feedback-worker:${TAG:-latest}
+    image: ghcr.io/8b-is/aygent-feedback-worker:${TAG:-latest}
     build:
       context: ./feedback-worker
       dockerfile: Dockerfile
     container_name: st-aygent-feedback-worker
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_REPO=${GITHUB_REPO:-8b-is/st-aygent}
+      - GITHUB_REPO=${GITHUB_REPO:-8b-is/aygent}
       - FEEDBACK_API_URL=http://feedback-api:8000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/feedback
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379/1
