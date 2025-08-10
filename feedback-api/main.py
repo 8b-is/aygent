@@ -4,8 +4,9 @@ Smart Tree Feedback API - The Taco Bell of Directory Tools!
 Collects enhancement requests from AI assistants using smart-tree MCP.
 """
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request, Depends
 from fastapi.responses import PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Literal, Any
 from datetime import datetime, timezone
@@ -20,16 +21,36 @@ import logging
 import time
 from functools import lru_cache
 
+# Import new modules
+from auth import (
+    AgentAuth, TokenResponse, require_agent_auth, create_access_token,
+    verify_agent_key, rate_limit, RateLimiter, AGENT_KEYS
+)
+from llm_assistant import get_assistant, SmartTreeTask, LLMResponse
+from admin_panel import router as admin_router
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Smart Tree Feedback API",
     description="Collect structured feedback from AI assistants to enhance smart-tree",
-    version="1.0.0",
+    version="2.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
 )
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include admin router
+app.include_router(admin_router)
 
 # Feedback categories
 FeedbackCategory = Literal["bug", "nice_to_have", "critical", "tool_request"]
@@ -272,11 +293,14 @@ async def health_check():
 
 
 @app.post("/feedback", response_model=FeedbackResponse)
+@rate_limit(max_requests=100, window_seconds=60)
 async def submit_feedback(
+    request: Request,
     feedback: SmartTreeFeedback,
     x_mcp_client: Optional[str] = Header(None, description="MCP client identifier"),
+    agent: Optional[Dict] = Depends(require_agent_auth),
 ):
-    """Submit feedback from AI assistants"""
+    """Submit feedback from AI assistants (requires authentication)"""
     try:
         # Generate ID
         feedback_id = generate_feedback_id(feedback)
@@ -284,6 +308,10 @@ async def submit_feedback(
         # Add MCP client info if provided
         if x_mcp_client:
             feedback.tags.append(f"mcp_client:{x_mcp_client}")
+        
+        # Add agent info if authenticated
+        if agent:
+            feedback.tags.append(f"agent:{agent['agent_id']}")
 
         # Compress feedback
         compressed_data, compressed_size, original_size = compress_feedback(feedback)
@@ -1379,6 +1407,144 @@ async def get_model_activity():
     }
 
 
+# Authentication endpoints
+@app.post("/auth/token", response_model=TokenResponse)
+async def get_auth_token(auth: AgentAuth):
+    """Get authentication token for agents"""
+    agent = verify_agent_key(auth.agent_id, auth.api_key)
+    if not agent:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    token = create_access_token(auth.agent_id, agent)
+    
+    return TokenResponse(
+        access_token=token,
+        agent_name=agent["name"],
+        permissions=agent["permissions"],
+    )
+
+
+@app.get("/auth/keys")
+async def list_api_keys():
+    """List available API keys (for development only)"""
+    # Only show in development mode
+    if os.getenv("ENV", "development") != "development":
+        raise HTTPException(status_code=403, detail="Not available in production")
+    
+    keys = {}
+    for agent_id, agent_data in AGENT_KEYS.items():
+        keys[agent_id] = {
+            "name": agent_data["name"],
+            "api_key": f"{agent_id}:{agent_data['secret']}",
+            "permissions": agent_data["permissions"],
+            "rate_limit": agent_data["rate_limit"],
+        }
+    
+    return {
+        "message": "API keys for testing (use X-API-Key header)",
+        "format": "agent_id:api_key",
+        "keys": keys,
+    }
+
+
+# LLM Assistant endpoints
+@app.post("/llm/assist", response_model=LLMResponse)
+@rate_limit(max_requests=30, window_seconds=60)
+async def llm_assist(
+    request: Request,
+    task: SmartTreeTask,
+    agent: Dict = Depends(require_agent_auth),
+):
+    """Get LLM assistance for Smart-Tree tasks"""
+    # Check if agent has LLM permissions
+    if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
+        raise HTTPException(status_code=403, detail="Agent lacks LLM query permission")
+    
+    assistant = get_assistant()
+    response = await assistant.assist(task)
+    
+    # Track usage
+    await track_tool_usage(ToolUsageStats(
+        tool_name="llm_assist",
+        model_type=agent["name"],
+        usage_count=1,
+        success_rate=1.0 if response.response else 0.0,
+        avg_execution_time_ms=100,  # Would measure actual time
+    ))
+    
+    return response
+
+
+@app.post("/llm/batch", response_model=List[LLMResponse])
+@rate_limit(max_requests=10, window_seconds=60)
+async def llm_batch_assist(
+    request: Request,
+    tasks: List[SmartTreeTask],
+    agent: Dict = Depends(require_agent_auth),
+):
+    """Process multiple LLM tasks in batch"""
+    if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
+        raise HTTPException(status_code=403, detail="Agent lacks LLM query permission")
+    
+    if len(tasks) > 10:
+        raise HTTPException(status_code=400, detail="Maximum 10 tasks per batch")
+    
+    assistant = get_assistant()
+    responses = await assistant.batch_assist(tasks)
+    
+    return responses
+
+
+@app.get("/llm/models")
+async def list_available_models():
+    """List available LLM models"""
+    return {
+        "models": [
+            {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "cost_per_1m": 0.25},
+            {"id": "anthropic/claude-3-sonnet", "name": "Claude 3 Sonnet", "cost_per_1m": 3.00},
+            {"id": "meta-llama/llama-3.1-8b-instruct", "name": "Llama 3.1 8B", "cost_per_1m": 0.05},
+            {"id": "mistralai/mistral-7b-instruct", "name": "Mistral 7B", "cost_per_1m": 0.05},
+        ],
+        "default": "anthropic/claude-3-haiku",
+        "note": "Costs are approximate per 1M tokens",
+    }
+
+
+# Rate limit status endpoint
+@app.get("/rate-limit/status")
+async def get_rate_limit_status(
+    request: Request,
+    agent: Optional[Dict] = Depends(require_agent_auth),
+):
+    """Get current rate limit status for agent"""
+    if agent:
+        identifier = f"agent:{agent['agent_id']}"
+        rate_info = RateLimiter.get_remaining(
+            identifier,
+            agent["rate_limit"],
+            60
+        )
+    else:
+        identifier = request.client.host
+        rate_info = RateLimiter.get_remaining(identifier, 60, 60)
+    
+    return {
+        "identifier": identifier,
+        "limit": rate_info["limit"],
+        "remaining": rate_info["remaining"],
+        "reset_in_seconds": rate_info["reset_in"],
+    }
+
+
 if __name__ == "__main__":
+    # Print startup info
+    print("\n" + "="*60)
+    print("🌲 Smart Tree Feedback API v2.0")
+    print("=" * 60)
+    print(f"📮 API Docs: http://localhost:8420/api/docs")
+    print(f"🔐 Admin Panel: http://localhost:8420/admin")
+    print(f"🔑 Get API Keys: http://localhost:8420/auth/keys")
+    print("=" * 60 + "\n")
+    
     # Run on port 8420 (Mem|8 standard)
     uvicorn.run(app, host="0.0.0.0", port=8420)
