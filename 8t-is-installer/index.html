@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>smart-tree | 8t.is</title>
+    <style>
+        :root {
+            --primary: #00ff88;
+            --secondary: #8b00ff;
+            --bg-dark: #0a0a0a;
+            --bg-darker: #050505;
+            --text: #e0e0e0;
+            --code-bg: #1a1a1a;
+            --border: #333;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            background: linear-gradient(135deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        h1 {
+            font-size: 3rem;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+            text-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+        }
+
+        .tagline {
+            font-size: 1.2rem;
+            color: var(--primary);
+            opacity: 0.9;
+        }
+
+        .install-section {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            animation: slideUp 0.6s ease-out 0.2s both;
+        }
+
+        .install-command {
+            background: var(--bg-darker);
+            border: 2px solid var(--primary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            font-size: 1.3rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .install-command:hover {
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .install-command::before {
+            content: '$ ';
+            color: var(--primary);
+        }
+
+        .copy-btn {
+            position: absolute;
+            right: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--primary);
+            color: var(--bg-darker);
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: var(--secondary);
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+            animation: slideUp 0.6s ease-out 0.4s both;
+        }
+
+        .feature {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .feature:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0, 255, 136, 0.2);
+        }
+
+        .feature h3 {
+            color: var(--primary);
+            margin-bottom: 0.8rem;
+        }
+
+        .downloads {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            animation: slideUp 0.6s ease-out 0.6s both;
+        }
+
+        .downloads h2 {
+            color: var(--secondary);
+            margin-bottom: 1.5rem;
+            text-align: center;
+        }
+
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: var(--bg-darker);
+            text-decoration: none;
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            display: block;
+        }
+
+        .download-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(139, 0, 255, 0.4);
+        }
+
+        .size {
+            font-size: 0.8rem;
+            opacity: 0.8;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border);
+            opacity: 0.7;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @media (max-width: 600px) {
+            h1 { font-size: 2rem; }
+            .install-command { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>smart-tree</h1>
+            <p class="tagline">Context-aware file explorer for the modern developer</p>
+        </header>
+
+        <div class="install-section">
+            <h2 style="color: var(--primary); margin-bottom: 1rem;">Quick Install</h2>
+            <div class="install-command" onclick="copyCommand()">
+                <code id="install-cmd">curl 8t.is | sh</code>
+                <button class="copy-btn" onclick="copyCommand(event)">COPY</button>
+            </div>
+            <p style="margin-top: 1rem; text-align: center; opacity: 0.8;">
+                One command. Zero hassle. Maximum context efficiency.
+            </p>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <h3>🚀 Lightning Fast</h3>
+                <p>Written in Rust for blazing performance and minimal memory footprint</p>
+            </div>
+            <div class="feature">
+                <h3>🧠 Context Aware</h3>
+                <p>Intelligently filters and displays only what matters for your current task</p>
+            </div>
+            <div class="feature">
+                <h3>🎨 Beautiful Output</h3>
+                <p>Clean, color-coded tree visualization with smart truncation</p>
+            </div>
+            <div class="feature">
+                <h3>🔧 Highly Configurable</h3>
+                <p>Extensive options for filtering, sorting, and customizing output</p>
+            </div>
+        </div>
+
+        <div class="downloads">
+            <h2>Platform Downloads</h2>
+            <div class="download-grid">
+                <a href="/releases/st-v4.6.1-x86_64-unknown-linux-gnu.tar.gz" class="download-btn">
+                    <div>Linux x64</div>
+                    <div class="size">~4.8 MB</div>
+                </a>
+                <a href="/releases/st-v4.6.1-aarch64-unknown-linux-gnu.tar.gz" class="download-btn">
+                    <div>Linux ARM64</div>
+                    <div class="size">~4.8 MB</div>
+                </a>
+                <a href="/releases/st-v4.6.1-x86_64-apple-darwin.tar.gz" class="download-btn">
+                    <div>macOS Intel</div>
+                    <div class="size">~4.9 MB</div>
+                </a>
+                <a href="/releases/st-v4.6.1-aarch64-apple-darwin.tar.gz" class="download-btn">
+                    <div>macOS Apple Silicon</div>
+                    <div class="size">~4.9 MB</div>
+                </a>
+                <a href="/releases/st-v4.6.1-x86_64-pc-windows-msvc.zip" class="download-btn">
+                    <div>Windows x64</div>
+                    <div class="size">~5.0 MB</div>
+                </a>
+                <a href="/releases/smart-tree.dxt" class="download-btn">
+                    <div>Universal DXT</div>
+                    <div class="size">~457 KB</div>
+                </a>
+            </div>
+        </div>
+
+        <footer>
+            <p>Made with 💜 by <a href="https://8b.is" style="color: var(--primary);">8b-is</a></p>
+            <p style="margin-top: 0.5rem;">Part of the mem|8 ecosystem</p>
+        </footer>
+    </div>
+
+    <script>
+        function copyCommand(event) {
+            if (event) event.stopPropagation();
+            const cmd = document.getElementById('install-cmd').textContent;
+            navigator.clipboard.writeText(cmd).then(() => {
+                const btn = document.querySelector('.copy-btn');
+                btn.textContent = 'COPIED!';
+                btn.style.background = '#00ff88';
+                setTimeout(() => {
+                    btn.textContent = 'COPY';
+                    btn.style.background = '';
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>

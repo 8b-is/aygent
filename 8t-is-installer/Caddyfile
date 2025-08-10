@@ -1,0 +1,113 @@
+# 8t.is Smart-Tree Installer
+# Automatic HTTPS with Let's Encrypt
+
+8t.is {
+    # Automatic HTTPS on port 443
+    
+    # Main route handler - detects browser vs terminal
+    @terminal {
+        not header User-Agent *Mozilla*
+        not header User-Agent *Chrome*
+        not header User-Agent *Safari*
+        not header User-Agent *Edge*
+        not header User-Agent *Opera*
+    }
+    
+    @browser {
+        header User-Agent *Mozilla*
+        header User-Agent *Chrome*
+        header User-Agent *Safari*
+        header User-Agent *Edge*
+        header User-Agent *Opera*
+    }
+    
+    # Root directory
+    root * /srv
+    
+    # Handle main routes
+    handle / {
+        # Serve installer script to terminals
+        @is_terminal {
+            not header User-Agent *Mozilla*
+            not header User-Agent *Chrome*
+            not header User-Agent *Safari*
+            not header User-Agent *Edge*
+            not header User-Agent *Opera*
+        }
+        respond @is_terminal `{file:/srv/install.sh}` 200 {
+            header Content-Type "text/plain; charset=utf-8"
+            header X-Content-Type-Options "nosniff"
+        }
+        
+        # Serve HTML to browsers
+        respond `{file:/srv/index.html}` 200 {
+            header Content-Type "text/html; charset=utf-8"
+        }
+    }
+    
+    # Aliases
+    handle /install {
+        respond @terminal `{file:/srv/install.sh}` 200 {
+            header Content-Type "text/plain; charset=utf-8"
+        }
+        respond @browser `{file:/srv/index.html}` 200 {
+            header Content-Type "text/html; charset=utf-8"
+        }
+    }
+    
+    handle /tree {
+        respond @terminal `{file:/srv/install.sh}` 200 {
+            header Content-Type "text/plain; charset=utf-8"
+        }
+        respond @browser `{file:/srv/index.html}` 200 {
+            header Content-Type "text/html; charset=utf-8"
+        }
+    }
+    
+    # Release files
+    handle /releases/* {
+        file_server {
+            root /srv
+            browse off
+        }
+        
+        @compressed path *.tar.gz *.gz
+        header @compressed Content-Type "application/gzip"
+        header @compressed Content-Disposition "attachment"
+        
+        @zip path *.zip
+        header @zip Content-Type "application/zip"
+        header @zip Content-Disposition "attachment"
+        
+        @dxt path *.dxt
+        header @dxt Content-Type "application/octet-stream"
+        header @dxt Content-Disposition "attachment"
+        
+        @checksum path *.sha256
+        header @checksum Content-Type "text/plain"
+    }
+    
+    # Security headers
+    header {
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        -Server
+    }
+    
+    # Logging
+    log {
+        output file /var/log/caddy/8t.is.log
+        format json
+    }
+}
+
+# HTTP to HTTPS redirect
+http://8t.is {
+    redir https://8t.is{uri} permanent
+}
+
+# Also listen on www subdomain
+www.8t.is {
+    redir https://8t.is{uri} permanent
+}

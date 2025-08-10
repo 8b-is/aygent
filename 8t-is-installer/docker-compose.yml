@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  8t-installer:
+    image: caddy:alpine
+    container_name: 8t-installer
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./install.sh:/srv/install.sh:ro
+      - ./index.html:/srv/index.html:ro
+      - ./releases:/srv/releases:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./logs:/var/log/caddy
+    restart: unless-stopped
+    environment:
+      - ACME_AGREE=true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.8t.rule=Host(`8t.is`)"
+      - "traefik.http.routers.8t.entrypoints=websecure"
+      - "traefik.http.routers.8t.tls=true"
+      - "traefik.http.routers.8t.tls.certresolver=letsencrypt"
+      - "traefik.http.services.8t.loadbalancer.server.port=443"
+    networks:
+      - web
+
+volumes:
+  caddy_data:
+    external: true
+  caddy_config:
+
+networks:
+  web:
+    external: true

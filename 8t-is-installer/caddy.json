@@ -1,0 +1,61 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "8t_is": {
+          "listen": [":8424"],
+          "routes": [
+            {
+              "match": [{
+                "host": ["8t.is", "localhost"]
+              }],
+              "handle": [{
+                "handler": "subroute",
+                "routes": [
+                  {
+                    "match": [{
+                      "path": ["/", "/install", "/tree"]
+                    }],
+                    "handle": [{
+                      "handler": "rewrite",
+                      "rewrite": "/index.sh"
+                    }]
+                  },
+                  {
+                    "match": [{
+                      "path": ["/index.sh"]
+                    }],
+                    "handle": [{
+                      "handler": "file_server",
+                      "root": "/data/source/aygent/8t-is-installer",
+                      "browse": false,
+                      "pass_thru": true
+                    }, {
+                      "handler": "headers",
+                      "response": {
+                        "set": {
+                          "Content-Type": ["text/plain; charset=utf-8"],
+                          "X-Content-Type-Options": ["nosniff"]
+                        }
+                      }
+                    }]
+                  },
+                  {
+                    "match": [{
+                      "path": ["/releases/*"]
+                    }],
+                    "handle": [{
+                      "handler": "file_server",
+                      "root": "/data/source/aygent/8t-is-installer",
+                      "browse": false
+                    }]
+                  }
+                ]
+              }]
+            }
+          ]
+        }
+      }
+    }
+  }
+}
