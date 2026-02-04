@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>The Cheet Persona Demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; }
+    #transcript { border: 1px solid #ccc; padding: 10px; min-height: 200px; }
+  </style>
+</head>
+<body>
+<h1>The Cheet API Persona Switching Demo</h1>
+<label for="persona">Select persona:</label>
+<select id="persona" onchange="switchPersona()">
+  <option value="tutor">Tutor</option>
+  <option value="default">Default</option>
+</select>
+<div id="transcript">
+  <!-- conversation transcript will appear here -->
+</div>
+<script>
+function switchPersona() {
+  var persona = document.getElementById('persona').value;
+  var transcript = document.getElementById('transcript');
+  if (persona === 'tutor') {
+    transcript.innerHTML = '<strong>User:</strong> How do I solve quadratic equations?<br><strong>Tutor:</strong> To solve ax^2 + bx + c = 0, use the quadratic formula x = (-b ± √(b^2 - 4ac))/(2a).';
+  } else {
+    transcript.innerHTML = '<strong>User:</strong> Hello!<br><strong>Bot:</strong> Hi there!';
+  }
+}
+// initialize with tutor persona
+switchPersona();
+</script>
+</body>
+</html>
