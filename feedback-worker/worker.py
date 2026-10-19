@@ -16,6 +16,7 @@ import redis.asyncio as redis
 import uvloop
 from github import Github, GithubException
 from prometheus_client import Counter, Histogram, start_http_server
+from redis.exceptions import RedisError
 from requests import RequestException
 
 # Metrics
@@ -221,6 +222,15 @@ class FeedbackWorker:
         fingerprint_text = " ".join(sorted(important_words[:10]))
         return hashlib.sha256(fingerprint_text.encode()).hexdigest()[:16]
 
+    async def cache_issue(self, fingerprint: str, issue_number: int) -> None:
+        """Cache a confirmed issue without turning a cache outage into no match."""
+        try:
+            await self.redis.setex(
+                f"feedback:fingerprint:{fingerprint}", 86400, str(issue_number)
+            )
+        except RedisError:
+            logger.warning("Could not cache confirmed issue #%s", issue_number)
+
     async def check_duplicate(self, feedback: dict) -> int | None:
         """Check if feedback is duplicate, return issue number if found"""
         fingerprint = self.generate_fingerprint(feedback)
@@ -231,34 +241,22 @@ class FeedbackWorker:
             duplicate_detected.inc()
             return int(cached_issue)
 
-        # Search GitHub issues
-        try:
-            # Search by title similarity
-            search_query = feedback.get("title", "").split()[:5]
-            search_query = " ".join(search_query)
+        # A failed lookup must propagate; it is not evidence of no duplicate.
+        issues = self.repo.get_issues(state="all")
+        for issue in issues:
+            if issue.pull_request:
+                continue
 
-            issues = self.repo.get_issues(state="all")
-            for issue in issues:
-                if issue.pull_request:
-                    continue
+            # Check title similarity
+            issue_fingerprint = self.generate_fingerprint(
+                {"title": issue.title, "description": issue.body or ""}
+            )
 
-                # Check title similarity
-                issue_fingerprint = self.generate_fingerprint(
-                    {"title": issue.title, "description": issue.body or ""}
-                )
-
-                if issue_fingerprint == fingerprint:
-                    # Cache the match
-                    await self.redis.setex(
-                        f"feedback:fingerprint:{fingerprint}",
-                        86400,  # 24 hours
-                        str(issue.number),
-                    )
-                    duplicate_detected.inc()
-                    return issue.number
-
-        except Exception as e:
-            logger.error(f"Error checking duplicates: {e}")
+            if issue_fingerprint == fingerprint:
+                # Cache the match
+                await self.cache_issue(fingerprint, issue.number)
+                duplicate_detected.inc()
+                return issue.number
 
         return None
 
@@ -320,20 +318,19 @@ class FeedbackWorker:
             logger.warning("GitHub repo not configured - skipping issue creation")
             return None
 
-        try:
-            # Check for duplicates
-            duplicate_issue = await self.check_duplicate(feedback)
-            if duplicate_issue:
-                logger.info(f"Duplicate detected: #{duplicate_issue}")
-                return duplicate_issue
+        # Check for duplicates
+        duplicate_issue = await self.check_duplicate(feedback)
+        if duplicate_issue:
+            logger.info(f"Duplicate detected: #{duplicate_issue}")
+            return duplicate_issue
 
-            # Prepare labels
-            labels = [category, "feedback", "from-ai"]
-            if feedback.get("impact_score", 0) >= 8:
-                labels.append("high-priority")
+        # Prepare labels
+        labels = [category, "feedback", "from-ai"]
+        if feedback.get("impact_score", 0) >= 8:
+            labels.append("high-priority")
 
-            # Create issue body
-            body = f"""## Feedback from {feedback.get('mcp_tool', 'Smart Tree User')}
+        # Create issue body
+        body = f"""## Feedback from {feedback.get('mcp_tool', 'Smart Tree User')}
 
 {feedback.get('description', '')}
 
@@ -346,52 +343,41 @@ class FeedbackWorker:
 ### Examples
 """
 
-            # Add examples if provided
-            examples = feedback.get("examples", [])
-            if examples:
-                for example in examples:
-                    body += f"\n#### {example.get('description', 'Example')}\n"
-                    body += f"```\n{example.get('code', '')}\n```\n"
-                    if example.get("expected_output"):
-                        body += f"Expected output:\n```\n{example['expected_output']}\n```\n"
-            else:
-                body += "\nNo examples provided.\n"
+        # Add examples if provided
+        examples = feedback.get("examples", [])
+        if examples:
+            for example in examples:
+                body += f"\n#### {example.get('description', 'Example')}\n"
+                body += f"```\n{example.get('code', '')}\n```\n"
+                if example.get("expected_output"):
+                    body += (
+                        f"Expected output:\n```\n{example['expected_output']}\n```\n"
+                    )
+        else:
+            body += "\nNo examples provided.\n"
 
-            # Add proposed solution if available
-            if feedback.get("proposed_solution"):
-                body += f"\n### Proposed Solution\n{feedback['proposed_solution']}\n"
+        # Add proposed solution if available
+        if feedback.get("proposed_solution"):
+            body += f"\n### Proposed Solution\n{feedback['proposed_solution']}\n"
 
-            # Add metadata
-            body += f"\n---\n*Automatically created by {self.github_email}*\n*ST-AYGENT Feedback System*"
+        # Add metadata
+        body += f"\n---\n*Automatically created by {self.github_email}*\n*ST-AYGENT Feedback System*"
 
-            # Create the issue
-            issue = self.repo.create_issue(
-                title=feedback.get("title", "Untitled Feedback"),
-                body=body,
-                labels=labels,
-            )
+        # Create the issue
+        issue = self.repo.create_issue(
+            title=feedback.get("title", "Untitled Feedback"),
+            body=body,
+            labels=labels,
+        )
 
-            github_issues_created.inc()
-            logger.info(f"Created issue #{issue.number}: {issue.title}")
+        github_issues_created.inc()
+        logger.info(f"Created issue #{issue.number}: {issue.title}")
 
-            # Cache the fingerprint
-            fingerprint = self.generate_fingerprint(feedback)
-            await self.redis.setex(
-                f"feedback:fingerprint:{fingerprint}",
-                86400,  # 24 hours
-                str(issue.number),
-            )
+        # Cache the fingerprint
+        fingerprint = self.generate_fingerprint(feedback)
+        await self.cache_issue(fingerprint, issue.number)
 
-            return issue.number
-
-        except GithubException as e:
-            logger.error(f"GitHub API error: {e}")
-            feedback_errors.inc()
-            return None
-        except Exception as e:
-            logger.error(f"Error creating issue: {e}")
-            feedback_errors.inc()
-            return None
+        return issue.number
 
     async def process_feedback(self, feedback: dict) -> dict | None:
         """Process a single feedback item"""
@@ -438,7 +424,13 @@ class FeedbackWorker:
                 feedback_processed.inc()
                 return result
 
-            except Exception as e:
+            except (
+                GithubException,
+                RequestException,
+                RedisError,
+                aiohttp.ClientError,
+                TimeoutError,
+            ) as e:
                 logger.error(f"Error processing feedback: {e}")
                 feedback_errors.inc()
 
