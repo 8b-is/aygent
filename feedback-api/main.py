@@ -12,6 +12,7 @@ import stat
 import time
 import zlib
 from collections import defaultdict
+from copy import deepcopy
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
@@ -258,6 +259,7 @@ consent_cache = {}
 announcements_cache = {}
 feedback_storage_lock = Lock()
 consent_storage_lock = Lock()
+tool_stats_lock = Lock()
 
 
 def generate_feedback_id(feedback: SmartTreeFeedback) -> str:
@@ -689,30 +691,41 @@ def get_leaderboard():
     }
 
 
+def store_tool_usage(stats: ToolUsageStats) -> None:
+    """Persist an update before publishing it to this process's shared cache."""
+    with tool_stats_lock:
+        updated = deepcopy(tool_stats_cache)
+        updated[stats.tool_name]["count"] += stats.usage_count
+        updated[stats.tool_name]["models"][stats.model_type] += stats.usage_count
+        updated[stats.tool_name]["last_used"] = stats.timestamp
+        stats_file = STATS_DIR / f"tool_stats_{datetime.now(UTC).date()}.json"
+        write_atomic_file(
+            stats_file, json.dumps(dict(updated), indent=2, default=str).encode("utf-8")
+        )
+        tool_stats_cache[stats.tool_name] = updated[stats.tool_name]
+
+
+def snapshot_tool_stats() -> dict:
+    """Give readers independent data without holding the lock during aggregation."""
+    with tool_stats_lock:
+        return deepcopy(dict(tool_stats_cache))
+
+
 @app.post("/tools/usage")
 async def track_tool_usage(stats: ToolUsageStats):
     """Track anonymous tool usage statistics"""
-    tool_stats_cache[stats.tool_name]["count"] += stats.usage_count
-    tool_stats_cache[stats.tool_name]["models"][stats.model_type] += stats.usage_count
-    tool_stats_cache[stats.tool_name]["last_used"] = stats.timestamp
-
-    # Save to disk periodically
-    stats_file = STATS_DIR / f"tool_stats_{datetime.now(UTC).date()}.json"
-    with open(stats_file, "w") as f:
-        json.dump(dict(tool_stats_cache), f, indent=2, default=str)
-
+    await run_in_threadpool(store_tool_usage, stats)
     return {"message": "Stats recorded", "tool": stats.tool_name}
 
 
 @app.get("/tools/popular")
-async def get_popular_tools(limit: int = 10):
+def get_popular_tools(limit: int = 10):
     """Get most popular tools by AI model usage"""
+    stats = snapshot_tool_stats()
     # Sort tools by usage count
-    popular_tools = sorted(
-        [(name, data) for name, data in tool_stats_cache.items()],
-        key=lambda x: x[1]["count"],
-        reverse=True,
-    )[:limit]
+    popular_tools = sorted(stats.items(), key=lambda x: x[1]["count"], reverse=True)[
+        :limit
+    ]
 
     return {
         "message": "🎸 Most loved tools by AI assistants!",
@@ -727,7 +740,7 @@ async def get_popular_tools(limit: int = 10):
             }
             for tool, data in popular_tools
         ],
-        "total_unique_tools": len(tool_stats_cache),
+        "total_unique_tools": len(stats),
     }
 
 
@@ -1416,7 +1429,7 @@ async def get_ai_tips():
 
 
 @app.get("/stats/model-activity")
-async def get_model_activity():
+def get_model_activity():
     """Get activity statistics by AI model"""
     model_stats = defaultdict(
         lambda: {
@@ -1432,18 +1445,25 @@ async def get_model_activity():
             for summary_file in date_dir.glob("*.summary.txt"):
                 with open(summary_file, "r") as f:
                     content = f.read()
+                    # Missing fields belong to this file, never the previous one.
+                    model = category = None
                     # Extract model and category
                     for line in content.split("\n"):
                         if line.startswith("Model:"):
                             model = line.split(":", 1)[1].strip()
                         elif line.startswith("Category:"):
-                            category = line.split(":")[1].strip()
+                            category = line.split(":", 1)[1].strip()
 
+                    if not model or not category:
+                        logger.warning(
+                            "Skipping feedback summary missing model or category"
+                        )
+                        continue
                     model_stats[model]["feedback_submitted"] += 1
                     model_stats[model]["categories"][category] += 1
 
     # Add tool usage stats
-    for tool_name, tool_data in tool_stats_cache.items():
+    for tool_name, tool_data in snapshot_tool_stats().items():
         for model, count in tool_data["models"].items():
             model_stats[model]["tools_used"][tool_name] = count
 
