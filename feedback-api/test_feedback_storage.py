@@ -10,6 +10,7 @@ from uuid import UUID
 import httpx
 import main
 import pytest
+import storage
 
 
 @pytest.mark.asyncio
@@ -85,7 +86,7 @@ def test_file_is_complete_before_publication(tmp_path, monkeypatch, existing):
     if existing:
         target.write_bytes(b"previous complete file")
         target.chmod(0o640)
-    replace = main.os.replace
+    replace = storage.os.replace
     observations = []
 
     def observed_replace(source, destination):
@@ -97,7 +98,7 @@ def test_file_is_complete_before_publication(tmp_path, monkeypatch, existing):
             assert target.read_bytes() == b"previous complete file"
         return replace(source, destination)
 
-    monkeypatch.setattr(main.os, "replace", observed_replace)
+    monkeypatch.setattr(storage.os, "replace", observed_replace)
     main.write_atomic_file(target, b"new complete file")
     assert len(observations) == 1
     assert target.read_bytes() == b"new complete file"
@@ -118,7 +119,7 @@ def test_failed_publication_cleans_temp_and_preserves_destination(
         assert source.read_bytes() == b"new complete summary"
         raise OSError("synthetic publication failure")
 
-    monkeypatch.setattr(main.os, "replace", failed_replace)
+    monkeypatch.setattr(storage.os, "replace", failed_replace)
     with pytest.raises(OSError, match="synthetic publication failure"):
         main.write_atomic_file(target, b"new complete summary")
     assert list(tmp_path.iterdir()) == ([target] if existing else [])
@@ -128,7 +129,7 @@ def test_failed_publication_cleans_temp_and_preserves_destination(
 
 def test_exclusive_creation_does_not_remove_preexisting_temp(tmp_path, monkeypatch):
     identifier = UUID("00000000-0000-0000-0000-000000000001")
-    monkeypatch.setattr(main, "uuid4", lambda: identifier)
+    monkeypatch.setattr(storage, "uuid4", lambda: identifier)
     target = tmp_path / "synthetic.stfb"
     temporary = tmp_path / f".{target.name}.{identifier.hex}.tmp"
     temporary.write_bytes(b"preexisting temporary file")

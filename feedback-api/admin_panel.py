@@ -6,6 +6,8 @@ Beautiful web interface for managing feedback, agents, and monitoring
 
 import hashlib
 import json
+import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -20,6 +22,8 @@ from auth import (
 )
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -683,13 +687,13 @@ async def get_admin_stats(
 
 
 @router.get("/api/feedback")
-async def get_feedback_items(
+def get_feedback_items(
     admin: Annotated[dict, Depends(check_permission("admin.read"))], limit: int = 20
 ):
     """Get recent feedback items"""
     # Read from feedback directory
     feedback_items = []
-    feedback_dir = Path("./feedback")
+    feedback_dir = Path(os.getenv("FEEDBACK_DIR", "./feedback"))
 
     if feedback_dir.exists():
         for date_dir in sorted(feedback_dir.iterdir(), reverse=True):
@@ -713,14 +717,15 @@ async def get_feedback_items(
                                         item["impact_score"] = int(
                                             line.split(":")[1].split("/")[0].strip()
                                         )
-                                    except:
+                                    except ValueError:
                                         item["impact_score"] = 5
 
                             feedback_items.append(item)
 
                             if len(feedback_items) >= limit:
                                 return feedback_items
-                    except Exception as e:
+                    except (OSError, UnicodeError):
+                        logger.warning("Skipping unreadable feedback summary")
                         continue
 
     return feedback_items
@@ -750,13 +755,13 @@ async def get_agents_list(
 
 
 @router.get("/api/llm/tasks")
-async def get_llm_tasks(
+def get_llm_tasks(
     admin: Annotated[dict, Depends(check_permission("admin.read"))],
 ):
     """Get recent LLM tasks"""
     # Read from cache directory
     tasks = []
-    cache_dir = Path("./llm_cache")
+    cache_dir = Path(os.getenv("LLM_CACHE_DIR", "./llm_cache"))
 
     if cache_dir.exists():
         for cache_file in sorted(
@@ -765,6 +770,9 @@ async def get_llm_tasks(
             try:
                 with open(cache_file, "r") as f:
                     data = json.load(f)
+                    if not isinstance(data, dict):
+                        logger.warning("Skipping non-object LLM cache entry")
+                        continue
                     tasks.append(
                         {
                             "task_type": "unknown",  # Would be in the data
@@ -775,7 +783,8 @@ async def get_llm_tasks(
                             "timestamp": data.get("timestamp", ""),
                         }
                     )
-            except:
+            except (OSError, ValueError):
+                logger.warning("Skipping unreadable LLM cache entry")
                 continue
 
     return tasks

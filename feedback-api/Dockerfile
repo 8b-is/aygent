@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY main.py auth.py llm_assistant.py admin_panel.py ./
+COPY main.py auth.py llm_assistant.py admin_panel.py storage.py ./
 
 # Create feedback directory
 RUN mkdir -p /app/feedback

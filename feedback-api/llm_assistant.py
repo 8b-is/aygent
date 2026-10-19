@@ -8,11 +8,14 @@ import asyncio
 import hashlib
 import json
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+from storage import write_atomic_file
 
 # OpenRouter configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -84,25 +87,27 @@ class SmartTreeAssistant:
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
     def _get_cached_response(self, cache_key: str) -> LLMResponse | None:
-        """Check for cached response"""
+        """Check a complete cached response that is less than one hour old."""
         cache_file = CACHE_DIR / f"{cache_key}.json"
-        if cache_file.exists():
-            # Cache expires after 1 hour
-            if (
-                datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
-            ).seconds < 3600:
-                with open(cache_file, "r") as f:
-                    data = json.load(f)
-                    response = LLMResponse(**data)
+        try:
+            with cache_file.open("r") as stream:
+                # Read the age of the opened file, even if another request replaces it.
+                age = time.time() - os.fstat(stream.fileno()).st_mtime
+                if 0 <= age < 3600:
+                    response = LLMResponse(**json.load(stream))
                     response.cached = True
                     return response
+        except FileNotFoundError:
+            return None
         return None
 
     def _save_to_cache(self, cache_key: str, response: LLMResponse):
-        """Save response to cache"""
+        """Publish a complete response without truncating the previous cache entry."""
         cache_file = CACHE_DIR / f"{cache_key}.json"
-        with open(cache_file, "w") as f:
-            json.dump(response.model_dump(), f, indent=2, default=str)
+        write_atomic_file(
+            cache_file,
+            json.dumps(response.model_dump(), indent=2, default=str).encode("utf-8"),
+        )
 
     def _select_model(self, task_type: str) -> str:
         """Select appropriate model for task"""
@@ -182,7 +187,7 @@ class SmartTreeAssistant:
 
         # Check cache first
         cache_key = self._get_cache_key(task)
-        cached = self._get_cached_response(cache_key)
+        cached = await run_in_threadpool(self._get_cached_response, cache_key)
         if cached:
             return cached
 
@@ -229,7 +234,7 @@ class SmartTreeAssistant:
             )
 
             # Cache the response
-            self._save_to_cache(cache_key, llm_response)
+            await run_in_threadpool(self._save_to_cache, cache_key, llm_response)
 
             return llm_response
 

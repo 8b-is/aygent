@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import os
-import stat
 import time
 import zlib
 from collections import defaultdict
@@ -18,7 +17,6 @@ from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any, Literal
-from uuid import uuid4
 
 import uvicorn
 from admin_panel import router as admin_router
@@ -41,6 +39,7 @@ from fastapi.responses import PlainTextResponse
 from llm_assistant import LLMResponse, SmartTreeTask, get_assistant
 from pydantic import AfterValidator, BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from storage import write_atomic_file
 
 logger = logging.getLogger(__name__)
 
@@ -274,24 +273,6 @@ def compress_feedback(feedback: SmartTreeFeedback) -> tuple[bytes, int, int]:
     original_size = len(json_data.encode())
     compressed = zlib.compress(json_data.encode(), level=9)
     return compressed, len(compressed), original_size
-
-
-def write_atomic_file(destination: Path, data: bytes) -> None:
-    """Publish a complete file without exposing a partially written destination."""
-    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
-    created = False
-    try:
-        # Exclusive creation keeps temporary files out of feedback-reader globs.
-        # Ordinary open permissions match the previous direct-write behavior.
-        with temporary.open("xb") as stream:
-            created = True
-            stream.write(data)
-            if destination.exists():
-                os.fchmod(stream.fileno(), stat.S_IMODE(destination.stat().st_mode))
-        os.replace(temporary, destination)
-    finally:
-        if created:
-            temporary.unlink(missing_ok=True)
 
 
 def store_feedback(
