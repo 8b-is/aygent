@@ -23,8 +23,15 @@ from functools import lru_cache
 
 # Import new modules
 from auth import (
-    AgentAuth, TokenResponse, require_agent_auth, create_access_token,
-    verify_agent_key, rate_limit, RateLimiter, AGENT_KEYS
+    AgentAuth,
+    TokenResponse,
+    require_agent_auth,
+    create_access_token,
+    verify_agent_key,
+    rate_limit,
+    RateLimiter,
+    AGENT_KEYS,
+    check_permission,
 )
 from llm_assistant import get_assistant, SmartTreeTask, LLMResponse
 from admin_panel import router as admin_router
@@ -308,7 +315,7 @@ async def submit_feedback(
         # Add MCP client info if provided
         if x_mcp_client:
             feedback.tags.append(f"mcp_client:{x_mcp_client}")
-        
+
         # Add agent info if authenticated
         if agent:
             feedback.tags.append(f"agent:{agent['agent_id']}")
@@ -407,7 +414,10 @@ async def get_feedback_stats():
 
 @app.post("/feedback/{feedback_id}/dispatch-fix")
 async def dispatch_fix(
-    feedback_id: str, auto_assign: bool = True, assigned_ai: Optional[str] = None
+    feedback_id: str,
+    auto_assign: bool = True,
+    assigned_ai: Optional[str] = None,
+    principal: Dict = Depends(check_permission("feedback.dispatch")),
 ):
     """Dispatch an AI to fix the reported issue"""
     # Check if feedback exists
@@ -1414,9 +1424,9 @@ async def get_auth_token(auth: AgentAuth):
     agent = verify_agent_key(auth.agent_id, auth.api_key)
     if not agent:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     token = create_access_token(auth.agent_id, agent)
-    
+
     return TokenResponse(
         access_token=token,
         agent_name=agent["name"],
@@ -1430,7 +1440,7 @@ async def list_api_keys():
     # Only show in development mode
     if os.getenv("ENV", "development") != "development":
         raise HTTPException(status_code=403, detail="Not available in production")
-    
+
     keys = {}
     for agent_id, agent_data in AGENT_KEYS.items():
         keys[agent_id] = {
@@ -1439,7 +1449,7 @@ async def list_api_keys():
             "permissions": agent_data["permissions"],
             "rate_limit": agent_data["rate_limit"],
         }
-    
+
     return {
         "message": "API keys for testing (use X-API-Key header)",
         "format": "agent_id:api_key",
@@ -1459,19 +1469,21 @@ async def llm_assist(
     # Check if agent has LLM permissions
     if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
         raise HTTPException(status_code=403, detail="Agent lacks LLM query permission")
-    
+
     assistant = get_assistant()
     response = await assistant.assist(task)
-    
+
     # Track usage
-    await track_tool_usage(ToolUsageStats(
-        tool_name="llm_assist",
-        model_type=agent["name"],
-        usage_count=1,
-        success_rate=1.0 if response.response else 0.0,
-        avg_execution_time_ms=100,  # Would measure actual time
-    ))
-    
+    await track_tool_usage(
+        ToolUsageStats(
+            tool_name="llm_assist",
+            model_type=agent["name"],
+            usage_count=1,
+            success_rate=1.0 if response.response else 0.0,
+            avg_execution_time_ms=100,  # Would measure actual time
+        )
+    )
+
     return response
 
 
@@ -1485,13 +1497,13 @@ async def llm_batch_assist(
     """Process multiple LLM tasks in batch"""
     if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
         raise HTTPException(status_code=403, detail="Agent lacks LLM query permission")
-    
+
     if len(tasks) > 10:
         raise HTTPException(status_code=400, detail="Maximum 10 tasks per batch")
-    
+
     assistant = get_assistant()
     responses = await assistant.batch_assist(tasks)
-    
+
     return responses
 
 
@@ -1500,10 +1512,26 @@ async def list_available_models():
     """List available LLM models"""
     return {
         "models": [
-            {"id": "anthropic/claude-3-haiku", "name": "Claude 3 Haiku", "cost_per_1m": 0.25},
-            {"id": "anthropic/claude-3-sonnet", "name": "Claude 3 Sonnet", "cost_per_1m": 3.00},
-            {"id": "meta-llama/llama-3.1-8b-instruct", "name": "Llama 3.1 8B", "cost_per_1m": 0.05},
-            {"id": "mistralai/mistral-7b-instruct", "name": "Mistral 7B", "cost_per_1m": 0.05},
+            {
+                "id": "anthropic/claude-3-haiku",
+                "name": "Claude 3 Haiku",
+                "cost_per_1m": 0.25,
+            },
+            {
+                "id": "anthropic/claude-3-sonnet",
+                "name": "Claude 3 Sonnet",
+                "cost_per_1m": 3.00,
+            },
+            {
+                "id": "meta-llama/llama-3.1-8b-instruct",
+                "name": "Llama 3.1 8B",
+                "cost_per_1m": 0.05,
+            },
+            {
+                "id": "mistralai/mistral-7b-instruct",
+                "name": "Mistral 7B",
+                "cost_per_1m": 0.05,
+            },
         ],
         "default": "anthropic/claude-3-haiku",
         "note": "Costs are approximate per 1M tokens",
@@ -1519,15 +1547,11 @@ async def get_rate_limit_status(
     """Get current rate limit status for agent"""
     if agent:
         identifier = f"agent:{agent['agent_id']}"
-        rate_info = RateLimiter.get_remaining(
-            identifier,
-            agent["rate_limit"],
-            60
-        )
+        rate_info = RateLimiter.get_remaining(identifier, agent["rate_limit"], 60)
     else:
         identifier = request.client.host
         rate_info = RateLimiter.get_remaining(identifier, 60, 60)
-    
+
     return {
         "identifier": identifier,
         "limit": rate_info["limit"],
@@ -1538,13 +1562,13 @@ async def get_rate_limit_status(
 
 if __name__ == "__main__":
     # Print startup info
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🌲 Smart Tree Feedback API v2.0")
     print("=" * 60)
     print(f"📮 API Docs: http://localhost:8420/api/docs")
     print(f"🔐 Admin Panel: http://localhost:8420/admin")
     print(f"🔑 Get API Keys: http://localhost:8420/auth/keys")
     print("=" * 60 + "\n")
-    
+
     # Run on port 8420 (Mem|8 standard)
     uvicorn.run(app, host="0.0.0.0", port=8420)

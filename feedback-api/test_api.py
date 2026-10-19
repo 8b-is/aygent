@@ -16,7 +16,9 @@ os.environ["CONSENT_DIR"] = tempfile.mkdtemp()
 
 from main import app
 
-client = TestClient(app)
+client = TestClient(
+    app, headers={"X-API-Key": "agent_claude_001:synthetic-api-test-key"}
+)
 
 
 def test_root_endpoint():
