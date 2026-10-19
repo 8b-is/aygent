@@ -1,10 +1,10 @@
 name: Test Suite
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test-api:
@@ -137,10 +137,19 @@ jobs:
       - name: Run linters
         run: |
           # Check Python code style
-          black --check feedback-api feedback-worker
+          black --check feedback-api feedback-worker ci
           
           # Run ruff for linting
-          ruff check feedback-api feedback-worker
+          ruff check feedback-api feedback-worker ci
           
           # Type checking
           mypy feedback-api feedback-worker || true  # Allow mypy to fail for now
+
+  test-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s ci -p "test_*.py" -v
