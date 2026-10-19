@@ -78,17 +78,6 @@ jobs:
   test-worker:
     runs-on: ubuntu-latest
     
-    services:
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -116,8 +105,8 @@ jobs:
       - name: Run tests
         env:
           REDIS_URL: redis://localhost:6379
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: 8b-is/aygent
+          GITHUB_TOKEN: ""
+          GITHUB_REPO: test/repo
         run: |
           cd feedback-worker
           pytest -v --cov=. --cov-report=xml

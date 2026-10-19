@@ -4,16 +4,14 @@ Test script for feedback worker
 """
 
 import asyncio
-import os
-import pytest
+import argparse
 import httpx
 
-# Use production API if CI environment, otherwise local
-API_BASE_URL = "https://f.8t.is/api" if os.getenv("CI") else "http://localhost:8422"
+# Manual checks are restricted to a disposable local service.
+API_BASE_URL = "http://127.0.0.1:8422"
 
 
-@pytest.mark.asyncio
-async def test_feedback_submission():
+async def check_feedback_submission():
     """Test submitting feedback to the API"""
 
     test_feedback = {
@@ -58,16 +56,11 @@ async def test_feedback_submission():
                 print(f"❌ Failed to submit feedback: {response.status_code}")
                 print(f"   {response.text}")
                 return None
-    except (httpx.ConnectError, httpx.TimeoutException) as e:
-        if os.getenv("CI"):
-            # In CI, skip if production API is not available
-            pytest.skip(f"Production API not available in CI: {e}")
-        else:
-            raise
+    except (httpx.ConnectError, httpx.TimeoutException):
+        raise
 
 
-@pytest.mark.asyncio
-async def test_pending_endpoint():
+async def check_pending_endpoint():
     """Test fetching pending feedback"""
 
     try:
@@ -83,24 +76,16 @@ async def test_pending_endpoint():
                     )
             else:
                 print(f"❌ Failed to fetch pending: {response.status_code}")
-    except (httpx.ConnectError, httpx.TimeoutException) as e:
-        if os.getenv("CI"):
-            # In CI, skip if production API is not available
-            pytest.skip(f"Production API not available in CI: {e}")
-        else:
-            raise
+    except (httpx.ConnectError, httpx.TimeoutException):
+        raise
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(
-    os.getenv("CI") == "true", reason="Worker metrics not available in CI"
-)
-async def test_worker_metrics():
+async def check_worker_metrics():
     """Check worker metrics"""
 
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.get("http://localhost:9090/metrics")
+            response = await client.get("http://127.0.0.1:9090/metrics")
             if response.status_code == 200:
                 print("\n📊 Worker metrics available")
                 # Parse some key metrics
@@ -113,19 +98,22 @@ async def test_worker_metrics():
             print("⚠️  Cannot connect to worker (not running?)")
 
 
-async def main():
+async def main(allow_local_writes=False):
     """Run all tests"""
 
-    print("🧪 Testing Smart Tree Feedback System\n")
+    if not allow_local_writes:
+        raise RuntimeError("Local writes require explicit opt-in")
+
+    print("🧪 Testing a disposable local feedback service\n")
 
     # Test 1: Submit feedback
-    feedback_id = await test_feedback_submission()
+    feedback_id = await check_feedback_submission()
 
     # Test 2: Check pending
-    await test_pending_endpoint()
+    await check_pending_endpoint()
 
     # Test 3: Check worker metrics
-    await test_worker_metrics()
+    await check_worker_metrics()
 
     print("\n✨ Tests complete!")
 
@@ -138,4 +126,17 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(
+        description="Manual checks against disposable localhost services; never run against production."
+    )
+    parser.add_argument(
+        "--allow-local-writes",
+        action="store_true",
+        help="Allow a synthetic feedback POST to the local API",
+    )
+    args = parser.parse_args()
+    if not args.allow_local_writes:
+        parser.error(
+            "--allow-local-writes is required; local feedback may trigger a configured worker"
+        )
+    asyncio.run(main(allow_local_writes=True))
