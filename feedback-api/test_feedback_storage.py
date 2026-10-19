@@ -98,7 +98,7 @@ def test_file_is_complete_before_publication(tmp_path, monkeypatch, existing):
         return replace(source, destination)
 
     monkeypatch.setattr(main.os, "replace", observed_replace)
-    main.write_feedback_file(target, b"new complete file")
+    main.write_atomic_file(target, b"new complete file")
     assert len(observations) == 1
     assert target.read_bytes() == b"new complete file"
     assert list(tmp_path.iterdir()) == [target]
@@ -120,7 +120,7 @@ def test_failed_publication_cleans_temp_and_preserves_destination(
 
     monkeypatch.setattr(main.os, "replace", failed_replace)
     with pytest.raises(OSError, match="synthetic publication failure"):
-        main.write_feedback_file(target, b"new complete summary")
+        main.write_atomic_file(target, b"new complete summary")
     assert list(tmp_path.iterdir()) == ([target] if existing else [])
     if existing:
         assert target.read_bytes() == b"previous complete summary"
@@ -133,6 +133,6 @@ def test_exclusive_creation_does_not_remove_preexisting_temp(tmp_path, monkeypat
     temporary = tmp_path / f".{target.name}.{identifier.hex}.tmp"
     temporary.write_bytes(b"preexisting temporary file")
     with pytest.raises(FileExistsError):
-        main.write_feedback_file(target, b"new complete file")
+        main.write_atomic_file(target, b"new complete file")
     assert temporary.read_bytes() == b"preexisting temporary file"
     assert not target.exists()

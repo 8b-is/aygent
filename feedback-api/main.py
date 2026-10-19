@@ -38,7 +38,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from llm_assistant import LLMResponse, SmartTreeTask, get_assistant
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
@@ -111,10 +111,20 @@ class ToolRequest(BaseModel):
     )
 
 
+def validate_consent_user_id(value: str) -> str:
+    """Consent IDs are filename components, never paths."""
+    if any(character in value for character in ("/", "\\", "\x00")):
+        raise ValueError("user_id must not contain path separators or NUL")
+    return value
+
+
+ConsentUserID = Annotated[str, AfterValidator(validate_consent_user_id)]
+
+
 class ConsentRequest(BaseModel):
     """User consent preferences for feedback submission"""
 
-    user_id: str | None = Field(None, description="Optional user identifier")
+    user_id: ConsentUserID | None = Field(None, description="Optional user identifier")
     consent_level: ConsentLevel = Field(..., description="User's consent preference")
     github_url: str | None = Field(None, description="GitHub profile for credit")
     email: str | None = Field(None, description="Contact email for updates")
@@ -247,6 +257,7 @@ tool_stats_cache = defaultdict(
 consent_cache = {}
 announcements_cache = {}
 feedback_storage_lock = Lock()
+consent_storage_lock = Lock()
 
 
 def generate_feedback_id(feedback: SmartTreeFeedback) -> str:
@@ -263,7 +274,7 @@ def compress_feedback(feedback: SmartTreeFeedback) -> tuple[bytes, int, int]:
     return compressed, len(compressed), original_size
 
 
-def write_feedback_file(destination: Path, data: bytes) -> None:
+def write_atomic_file(destination: Path, data: bytes) -> None:
     """Publish a complete file without exposing a partially written destination."""
     temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
     created = False
@@ -311,8 +322,8 @@ def store_feedback(
     # Retain serialized submission writes when requests run on worker threads.
     with feedback_storage_lock:
         feedback_file.parent.mkdir(exist_ok=True)
-        write_feedback_file(feedback_file, binary)
-        write_feedback_file(
+        write_atomic_file(feedback_file, binary)
+        write_atomic_file(
             feedback_file.with_suffix(".summary.txt"), summary.encode("utf-8")
         )
 
@@ -721,15 +732,16 @@ async def get_popular_tools(limit: int = 10):
 
 
 @app.post("/consent/set")
-async def set_consent(consent: ConsentRequest):
+def set_consent(consent: ConsentRequest):
     """Set user consent preferences"""
     user_key = consent.user_id or "anonymous"
-    consent_cache[user_key] = consent
-
-    # Save consent to disk
     consent_file = CONSENT_DIR / f"{user_key}.json"
-    with open(consent_file, "w") as f:
-        f.write(consent.model_dump_json(indent=2))
+    with consent_storage_lock:
+        write_atomic_file(
+            consent_file, consent.model_dump_json(indent=2).encode("utf-8")
+        )
+        # Publish the preference only after persistence succeeds.
+        consent_cache[user_key] = consent
 
     return {
         "message": "Consent preferences saved!",
@@ -739,20 +751,19 @@ async def set_consent(consent: ConsentRequest):
 
 
 @app.get("/consent/check/{user_id}")
-async def check_consent(user_id: str):
+def check_consent(user_id: ConsentUserID):
     """Check user's consent preferences"""
-    # Check cache first
-    if user_id in consent_cache:
-        return consent_cache[user_id].model_dump()
+    with consent_storage_lock:
+        if user_id in consent_cache:
+            return consent_cache[user_id].model_dump()
 
-    # Check disk
-    consent_file = CONSENT_DIR / f"{user_id}.json"
-    if consent_file.exists():
-        with open(consent_file, "r") as f:
-            consent_data = json.load(f)
-            consent = ConsentRequest(**consent_data)
-            consent_cache[user_id] = consent
-            return consent.model_dump()
+        consent_file = CONSENT_DIR / f"{user_id}.json"
+        if consent_file.exists():
+            with open(consent_file, "r") as f:
+                consent_data = json.load(f)
+                consent = ConsentRequest(**consent_data)
+                consent_cache[user_id] = consent
+                return consent.model_dump()
 
     return {"consent_level": "ask_each_time", "message": "No consent on file"}
 
