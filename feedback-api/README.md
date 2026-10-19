@@ -39,6 +39,15 @@ The service is deployed at `https://api.8b.is/smart-tree/feedback` on port 8420.
 
 ## API Endpoints
 
+### GET /auth/keys
+This credential-listing helper is disabled unless `ENV` is explicitly set to
+exactly `development`. Even then it requires a valid bearer JWT with the `*`
+permission, because its response contains every active agent key, including the
+administrator key. `admin.read` and `admin.write` alone do not grant this access.
+Use it only in a trusted local development environment. Unset, empty and other
+environment values keep it disabled; the supplied Compose files do not enable it.
+Production clients should obtain their own configured credential from the operator.
+
 ### POST /feedback
 Submit feedback from an AI assistant.
 

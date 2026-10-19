@@ -1586,10 +1586,10 @@ async def get_auth_token(auth: AgentAuth):
 
 
 @app.get("/auth/keys")
-async def list_api_keys():
-    """List available API keys (for development only)"""
-    # Only show in development mode
-    if os.getenv("ENV", "development") != "development":
+async def list_api_keys(admin: Annotated[dict, Depends(check_permission("*"))]):
+    """List development credentials for an already fully privileged administrator."""
+    # Returning every key requires both explicit opt-in and full authority.
+    if os.getenv("ENV") != "development":
         raise HTTPException(status_code=403, detail="Not available in production")
 
     keys = {}
@@ -1718,7 +1718,10 @@ if __name__ == "__main__":
     print("=" * 60)
     print("📮 API Docs: http://localhost:8420/api/docs")
     print("🔐 Admin Panel: http://localhost:8420/admin")
-    print("🔑 Get API Keys: http://localhost:8420/auth/keys")
+    if os.getenv("ENV") == "development":
+        print(
+            "🔑 Development API keys (admin token required): http://localhost:8420/auth/keys"
+        )
     print("=" * 60 + "\n")
 
     # Run on port 8420 (Mem|8 standard)
