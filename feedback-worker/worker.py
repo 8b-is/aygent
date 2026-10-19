@@ -16,6 +16,7 @@ import redis.asyncio as redis
 import uvloop
 from github import Github, GithubException
 from prometheus_client import Counter, Histogram, start_http_server
+from requests import RequestException
 
 # Metrics
 feedback_processed = Counter(
@@ -59,7 +60,7 @@ class FeedbackWorker:
                 self.gh = Github(self.github_token)
                 self.repo = self.gh.get_repo(self.github_repo)
                 print(f"✅ Connected to GitHub repo: {self.github_repo}")
-            except Exception as e:
+            except (GithubException, RequestException) as e:
                 print(f"⚠️ GitHub connection failed: {e}")
                 print("Running in local mode without GitHub integration")
         else:
@@ -309,7 +310,7 @@ class FeedbackWorker:
                 logger.error(f"Failed to trigger dispatch: {response.status}")
                 return False
 
-        except Exception as e:
+        except (aiohttp.ClientError, TimeoutError) as e:
             logger.error(f"Error triggering AI fix dispatch: {e}")
             return False
 
@@ -449,14 +450,28 @@ class FeedbackWorker:
         """Fetch pending feedback from API"""
         try:
             async with self.session.get(
-                f"{self.feedback_api_url}/feedback/pending"
+                f"{self.feedback_api_url}/feedback/pending",
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    items = await resp.json()
+                    if not isinstance(items, list) or any(
+                        not isinstance(item, dict) for item in items
+                    ):
+                        logger.error(
+                            "Pending feedback response must be a list of objects"
+                        )
+                        return []
+                    return items
                 else:
                     logger.error(f"Failed to fetch feedback: {resp.status}")
                     return []
-        except Exception as e:
+        except (
+            aiohttp.ClientError,
+            TimeoutError,
+            json.JSONDecodeError,
+            UnicodeError,
+        ) as e:
             logger.error(f"Error fetching feedback: {e}")
             return []
 
