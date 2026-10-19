@@ -8,13 +8,16 @@ import hashlib
 import json
 import logging
 import os
+import stat
 import time
 import zlib
 from collections import defaultdict
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 import uvicorn
 from admin_panel import router as admin_router
@@ -36,6 +39,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from llm_assistant import LLMResponse, SmartTreeTask, get_assistant
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +246,7 @@ tool_stats_cache = defaultdict(
 )
 consent_cache = {}
 announcements_cache = {}
+feedback_storage_lock = Lock()
 
 
 def generate_feedback_id(feedback: SmartTreeFeedback) -> str:
@@ -256,6 +261,60 @@ def compress_feedback(feedback: SmartTreeFeedback) -> tuple[bytes, int, int]:
     original_size = len(json_data.encode())
     compressed = zlib.compress(json_data.encode(), level=9)
     return compressed, len(compressed), original_size
+
+
+def write_feedback_file(destination: Path, data: bytes) -> None:
+    """Publish a complete file without exposing a partially written destination."""
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    created = False
+    try:
+        # Exclusive creation keeps temporary files out of feedback-reader globs.
+        # Ordinary open permissions match the previous direct-write behavior.
+        with temporary.open("xb") as stream:
+            created = True
+            stream.write(data)
+            if destination.exists():
+                os.fchmod(stream.fileno(), stat.S_IMODE(destination.stat().st_mode))
+        os.replace(temporary, destination)
+    finally:
+        if created:
+            temporary.unlink(missing_ok=True)
+
+
+def store_feedback(
+    feedback: SmartTreeFeedback,
+    feedback_id: str,
+    compressed_data: bytes,
+    original_size: int,
+) -> None:
+    """Write one submission off-loop; each file is atomic, not the pair."""
+    feedback_file = (
+        FEEDBACK_DIR / f"{feedback.timestamp.date()}" / f"{feedback_id}.stfb"
+    )
+    binary = (
+        b"STFB\x01\x00"
+        + original_size.to_bytes(4, "little")
+        + len(compressed_data).to_bytes(4, "little")
+        + compressed_data
+    )
+    summary = (
+        f"ID: {feedback_id}\n"
+        f"Category: {feedback.category}\n"
+        f"Title: {feedback.title}\n"
+        f"Impact: {feedback.impact_score}/10, Frequency: {feedback.frequency_score}/10\n"
+        f"Model: {feedback.ai_model}\n"
+        f"Time: {feedback.timestamp}\n"
+        f"Version: {feedback.smart_tree_version}\n"
+        f"Tags: {', '.join(feedback.tags)}\n"
+        f"\nDescription:\n{feedback.description[:500]}...\n"
+    )
+    # Retain serialized submission writes when requests run on worker threads.
+    with feedback_storage_lock:
+        feedback_file.parent.mkdir(exist_ok=True)
+        write_feedback_file(feedback_file, binary)
+        write_feedback_file(
+            feedback_file.with_suffix(".summary.txt"), summary.encode("utf-8")
+        )
 
 
 @app.get("/")
@@ -321,35 +380,9 @@ async def submit_feedback(
         # Compress feedback
         compressed_data, compressed_size, original_size = compress_feedback(feedback)
 
-        # Save compressed feedback
-        feedback_file = (
-            FEEDBACK_DIR / f"{feedback.timestamp.date()}" / f"{feedback_id}.stfb"
+        await run_in_threadpool(
+            store_feedback, feedback, feedback_id, compressed_data, original_size
         )
-        feedback_file.parent.mkdir(exist_ok=True)
-
-        # Write compressed data with metadata header
-        with open(feedback_file, "wb") as f:
-            # Write header: magic number + version + original size + compressed size
-            f.write(b"STFB")  # Smart Tree FeedBack magic
-            f.write(b"\x01\x00")  # Version 1.0
-            f.write(original_size.to_bytes(4, "little"))
-            f.write(compressed_size.to_bytes(4, "little"))
-            f.write(compressed_data)
-
-        # Also save a human-readable summary
-        summary_file = feedback_file.with_suffix(".summary.txt")
-        with open(summary_file, "w") as f:
-            f.write(f"ID: {feedback_id}\n")
-            f.write(f"Category: {feedback.category}\n")
-            f.write(f"Title: {feedback.title}\n")
-            f.write(
-                f"Impact: {feedback.impact_score}/10, Frequency: {feedback.frequency_score}/10\n"
-            )
-            f.write(f"Model: {feedback.ai_model}\n")
-            f.write(f"Time: {feedback.timestamp}\n")
-            f.write(f"Version: {feedback.smart_tree_version}\n")
-            f.write(f"Tags: {', '.join(feedback.tags)}\n")
-            f.write(f"\nDescription:\n{feedback.description[:500]}...\n")
 
         compression_ratio = (
             original_size / compressed_size if compressed_size > 0 else 0
