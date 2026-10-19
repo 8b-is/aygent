@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import zlib
 from collections import defaultdict
@@ -441,10 +442,49 @@ def get_feedback_stats():
     return stats
 
 
-def write_dispatch_record(path: Path, dispatch: FixDispatch):
-    """Coordinate dispatch publication with webhook state updates."""
+def prepare_fix_dispatch(feedback_id: str, assigned_ai: str | None, configured: bool):
+    """Reserve one durable request before any outbound delivery is attempted."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", feedback_id):
+        raise HTTPException(status_code=422, detail="Invalid feedback identifier")
     with dispatch_storage_lock:
-        write_atomic_file(path, dispatch.model_dump_json(indent=2).encode("utf-8"))
+        matches = [
+            directory / f"{feedback_id}.stfb"
+            for directory in FEEDBACK_DIR.iterdir()
+            if directory.is_dir() and (directory / f"{feedback_id}.stfb").is_file()
+        ]
+        if not matches:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        if len(matches) != 1:
+            raise HTTPException(status_code=409, detail="Ambiguous feedback identifier")
+        path = matches[0].with_suffix(".dispatch.json")
+        if path.exists():
+            with path.open("r") as stream:
+                data = json.load(stream)
+            existing = FixDispatch.model_validate(data)
+            if existing.feedback_id != feedback_id:
+                raise ValueError("Dispatch feedback ID does not match its filename")
+            return path, data, False
+        dispatch = FixDispatch(
+            feedback_id=feedback_id,
+            branch_name=f"fix/{feedback_id}-auto-fix",
+            assigned_ai=assigned_ai or "next-available-ai",
+        )
+        data = dispatch.model_dump(mode="json")
+        data["delivery_status"] = "attempting" if configured else "not_configured"
+        write_atomic_file(path, json.dumps(data, indent=2).encode("utf-8"))
+        return path, data, True
+
+
+def record_dispatch_delivery(path: Path, feedback_id: str, outcome: str):
+    """Update only delivery outcome, preserving any intervening webhook state."""
+    with dispatch_storage_lock:
+        with path.open("r") as stream:
+            data = json.load(stream)
+        if FixDispatch.model_validate(data).feedback_id != feedback_id:
+            raise ValueError("Dispatch feedback ID changed during delivery")
+        data["delivery_status"] = outcome
+        write_atomic_file(path, json.dumps(data, indent=2).encode("utf-8"))
+        return data
 
 
 @app.post("/feedback/{feedback_id}/dispatch-fix")
@@ -456,52 +496,54 @@ async def dispatch_fix(
     principal: Annotated[dict, Depends(check_permission("feedback.dispatch"))],
 ):
     """Dispatch an AI to fix the reported issue"""
-    # Check if feedback exists
-    feedback_file = None
-    for date_dir in FEEDBACK_DIR.glob("*"):
-        if date_dir.is_dir():
-            candidate = date_dir / f"{feedback_id}.stfb"
-            if candidate.exists():
-                feedback_file = candidate
-                break
-
-    if not feedback_file:
-        raise HTTPException(status_code=404, detail="Feedback not found")
-
-    # Create branch name
-    branch_name = f"fix/{feedback_id[:8]}-auto-fix"
-
-    # Create dispatch record
-    dispatch = FixDispatch(
-        feedback_id=feedback_id,
-        branch_name=branch_name,
-        assigned_ai=assigned_ai or "next-available-ai",
-    )
-
-    # Save dispatch record
-    dispatch_file = feedback_file.parent / f"{feedback_id}.dispatch.json"
-    await run_in_threadpool(write_dispatch_record, dispatch_file, dispatch)
-
-    # Trigger webhook if configured
     webhook_url = os.getenv("SMART_TREE_FIX_WEBHOOK")
-    if webhook_url:
+    path, data, created = await run_in_threadpool(
+        prepare_fix_dispatch, feedback_id, assigned_ai, bool(webhook_url)
+    )
+    if not created:
+        message = "Fix request already recorded; no new delivery attempted."
+    elif not webhook_url:
+        message = "Fix request recorded; outbound delivery is not configured."
+    else:
         import httpx
 
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                webhook_url,
-                json={
-                    "action": "dispatch_fix",
-                    "feedback_id": feedback_id,
-                    "branch_name": branch_name,
-                    "repository": "8b-is/smart-tree",
-                },
+        # A persisted attempting state is intentionally retained on cancellation.
+        # The remote outcome may be unknown; automatic replay could duplicate work.
+        try:
+            async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+                response = await client.post(
+                    webhook_url,
+                    json={
+                        "action": "dispatch_fix",
+                        "feedback_id": feedback_id,
+                        "branch_name": data["branch_name"],
+                        "repository": "8b-is/smart-tree",
+                    },
+                )
+        except httpx.RequestError as error:
+            await run_in_threadpool(
+                record_dispatch_delivery, path, feedback_id, "unknown"
             )
-
+            raise HTTPException(
+                status_code=502,
+                detail="Delivery outcome unknown; request retained for reconciliation",
+            ) from error
+        accepted = 200 <= response.status_code < 300
+        data = await run_in_threadpool(
+            record_dispatch_delivery,
+            path,
+            feedback_id,
+            "accepted" if accepted else "rejected",
+        )
+        if not accepted:
+            raise HTTPException(
+                status_code=502, detail="Outbound delivery rejected; request retained"
+            )
+        message = "Fix request accepted by the configured webhook."
     return {
-        "message": f"Fix dispatched! Branch: {branch_name}",
-        "dispatch": dispatch.model_dump(),
-        "credits": "Fix will be implemented by AI and credited to both reporter and implementer",
+        "message": message,
+        "dispatch": data,
+        "credits": "Credit attribution is pending.",
     }
 
 

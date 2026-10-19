@@ -67,7 +67,18 @@ Example request:
 ### POST /feedback/{feedback_id}/dispatch-fix
 Dispatch an AI to automatically fix the reported issue.
 
-This creates a new branch and can trigger AI assistants to implement the fix.
+This records one request and, when configured, sends it to the outbound webhook.
+New requests use the full feedback ID in the proposed branch name. A successful
+HTTP response from that webhook means it accepted the request, not that a branch
+or implementation has been verified.
+
+Repeated requests return the stored record without resetting PR state or sending
+another webhook. `delivery_status` distinguishes `not_configured`, `attempting`,
+`accepted`, `rejected` and `unknown`. A non-2xx reply or transport error returns
+HTTP 502 while retaining the request. Cancellation or a process interruption may
+leave `attempting`; reconcile the remote outcome before arranging a retry.
+Automatic retries are deliberately unavailable. Storage locking currently assumes
+the supplied single-worker API entrypoint.
 
 ### GET /feedback/{feedback_id}/credits
 Get credit attribution for who reported and fixed an issue.
