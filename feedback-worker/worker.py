@@ -14,7 +14,6 @@ from datetime import datetime
 
 import aiohttp
 import redis.asyncio as redis
-import requests
 import uvloop
 from github import Github, GithubException
 from prometheus_client import Counter, Histogram, start_http_server
@@ -265,7 +264,7 @@ class FeedbackWorker:
 
     async def trigger_ai_fix_dispatch(self, feedback: dict, issue_number: int) -> bool:
         """Trigger GitHub Actions workflow for AI to implement fix"""
-        if not self.gh or not self.repo:
+        if not self.gh or not self.repo or self.session is None:
             return False
 
         try:
@@ -299,17 +298,16 @@ class FeedbackWorker:
                 },
             }
 
-            response = requests.post(
+            async with self.session.post(
                 f"https://api.github.com/repos/{self.github_repo}/dispatches",
                 headers=headers,
                 json=payload,
-            )
-
-            if response.status_code == 204:
-                logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
-                return True
-            else:
-                logger.error(f"Failed to trigger dispatch: {response.status_code}")
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                if response.status == 204:
+                    logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
+                    return True
+                logger.error(f"Failed to trigger dispatch: {response.status}")
                 return False
 
         except Exception as e:
