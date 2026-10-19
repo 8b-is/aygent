@@ -71,6 +71,13 @@ FeedbackCategory = Literal["bug", "nice_to_have", "critical", "tool_request"]
 ConsentLevel = Literal["always_anonymous", "always_credited", "ask_each_time", "never"]
 
 
+def normalize_announcement_expiry(value: datetime | None) -> datetime | None:
+    """Interpret legacy timezone-less expiration values as UTC."""
+    if value is not None and value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 class Announcement(BaseModel):
     """Important announcement for AI systems"""
 
@@ -82,7 +89,9 @@ class Announcement(BaseModel):
     )
     active: bool = Field(True, description="Whether announcement is active")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    expires_at: datetime | None = Field(None, description="When announcement expires")
+    expires_at: Annotated[
+        datetime | None, AfterValidator(normalize_announcement_expiry)
+    ] = Field(None, description="When announcement expires")
     targets: list[str] = Field(
         default_factory=lambda: ["all"], description="Target AI models or 'all'"
     )

@@ -39,6 +39,13 @@ The service is deployed at `https://api.8b.is/smart-tree/feedback` on port 8420.
 
 ## API Endpoints
 
+### Announcement expiration
+Announcement `expires_at` values without a timezone are interpreted as UTC,
+including records already on disk. Explicit timezone offsets retain their meaning;
+`null` means no expiration. New timezone-less values are saved with an explicit
+UTC offset. Reading legacy records does not rewrite their files. An announcement
+is filtered out when its expiration is earlier than the current time.
+
 ### GET /auth/keys
 This credential-listing helper is disabled unless `ENV` is explicitly set to
 exactly `development`. Even then it requires a valid bearer JWT with the `*`
