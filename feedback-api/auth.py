@@ -11,7 +11,7 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from functools import wraps
-from typing import Any
+from typing import Annotated, Any
 
 import jwt
 import redis
@@ -124,7 +124,7 @@ def create_access_token(agent_id: str, agent_data: dict[str, Any]) -> str:
 
 
 def verify_token(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
 ) -> dict[str, Any]:
     """Verify JWT token"""
     token = credentials.credentials
@@ -141,7 +141,7 @@ def verify_token(
 def check_permission(required_permission: str):
     """Check if user has required permission"""
 
-    def permission_checker(token_data: dict = Depends(verify_token)):
+    def permission_checker(token_data: Annotated[dict, Depends(verify_token)]):
         permissions = token_data.get("permissions", [])
 
         # Check for wildcard permission

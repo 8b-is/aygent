@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import uvicorn
 from admin_panel import router as admin_router
@@ -301,8 +301,9 @@ async def health_check():
 async def submit_feedback(
     request: Request,
     feedback: SmartTreeFeedback,
+    *,
     x_mcp_client: str | None = Header(None, description="MCP client identifier"),
-    agent: dict | None = Depends(require_agent_auth),
+    agent: Annotated[dict | None, Depends(require_agent_auth)],
 ):
     """Submit feedback from AI assistants (requires authentication)"""
     try:
@@ -412,9 +413,10 @@ async def get_feedback_stats():
 @app.post("/feedback/{feedback_id}/dispatch-fix")
 async def dispatch_fix(
     feedback_id: str,
+    *,
     auto_assign: bool = True,
     assigned_ai: str | None = None,
-    principal: dict = Depends(check_permission("feedback.dispatch")),
+    principal: Annotated[dict, Depends(check_permission("feedback.dispatch"))],
 ):
     """Dispatch an AI to fix the reported issue"""
     # Check if feedback exists
@@ -1456,7 +1458,7 @@ async def list_api_keys():
 async def llm_assist(
     request: Request,
     task: SmartTreeTask,
-    agent: dict = Depends(require_agent_auth),
+    agent: Annotated[dict, Depends(require_agent_auth)],
 ):
     """Get LLM assistance for Smart-Tree tasks"""
     # Check if agent has LLM permissions
@@ -1485,7 +1487,7 @@ async def llm_assist(
 async def llm_batch_assist(
     request: Request,
     tasks: list[SmartTreeTask],
-    agent: dict = Depends(require_agent_auth),
+    agent: Annotated[dict, Depends(require_agent_auth)],
 ):
     """Process multiple LLM tasks in batch"""
     if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
@@ -1535,7 +1537,7 @@ async def list_available_models():
 @app.get("/rate-limit/status")
 async def get_rate_limit_status(
     request: Request,
-    agent: dict | None = Depends(require_agent_auth),
+    agent: Annotated[dict | None, Depends(require_agent_auth)],
 ):
     """Get current rate limit status for agent"""
     if agent:

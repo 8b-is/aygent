@@ -62,6 +62,20 @@ def test_admin_configuration(client, monkeypatch, username, variable, configured
 
 
 @pytest.mark.parametrize(
+    "permissions,status",
+    [(None, 403), (["feedback.read"], 403), (["admin.read"], 200), (["*"], 200)],
+)
+def test_admin_stats_permission_boundary(client, permissions, status):
+    headers = (
+        {} if permissions is None else {"Authorization": "Bearer " + token(permissions)}
+    )
+    response = client.get("/admin/api/stats", headers=headers)
+    assert response.status_code == status
+    if status == 200:
+        assert "total_feedback" in response.json()
+
+
+@pytest.mark.parametrize(
     "permissions", [None, ["feedback.read"], ["feedback.dispatch"], ["*"]]
 )
 def test_dispatch_auth_precedes_side_effects(
