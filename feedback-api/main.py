@@ -1325,8 +1325,11 @@ async def get_announcements(ai_model: str | None = None, priority: str | None = 
 
 
 @app.post("/announcements")
-async def create_announcement(announcement: Announcement):
-    """Create a new announcement (admin only in production)"""
+async def create_announcement(
+    announcement: Announcement,
+    admin: Annotated[dict, Depends(check_permission("admin.write"))],
+):
+    """Create a new announcement with administrative write permission."""
     # Store announcement
     announcements_cache[announcement.id] = announcement
 
@@ -1351,8 +1354,11 @@ async def create_announcement(announcement: Announcement):
 
 
 @app.delete("/announcements/{announcement_id}")
-async def deactivate_announcement(announcement_id: str):
-    """Deactivate an announcement"""
+async def deactivate_announcement(
+    announcement_id: str,
+    admin: Annotated[dict, Depends(check_permission("admin.write"))],
+):
+    """Deactivate an announcement with administrative write permission."""
     if announcement_id in announcements_cache:
         announcements_cache[announcement_id].active = False
 
