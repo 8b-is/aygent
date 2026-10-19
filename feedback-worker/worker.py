@@ -268,24 +268,24 @@ class FeedbackWorker:
         """Trigger GitHub Actions workflow for AI to implement fix"""
         if not self.gh or not self.repo:
             return False
-        
+
         try:
             # Only trigger for high-impact bugs and critical issues
             if feedback.get("category") not in ["bug", "critical"]:
                 return False
-            
+
             if feedback.get("impact_score", 0) < 7:
                 return False
-            
+
             # Generate branch name
             branch_name = f"ai-fix-{feedback.get('id', 'unknown')[:8]}"
-            
+
             # Trigger repository dispatch event
             headers = {
                 "Authorization": f"token {self.github_token}",
-                "Accept": "application/vnd.github.v3+json"
+                "Accept": "application/vnd.github.v3+json",
             }
-            
+
             payload = {
                 "event_type": "ai_fix_dispatch",
                 "client_payload": {
@@ -296,23 +296,23 @@ class FeedbackWorker:
                     "title": feedback.get("title"),
                     "description": feedback.get("description"),
                     "proposed_solution": feedback.get("proposed_solution", ""),
-                    "ai_model": feedback.get("ai_model", "unknown")
-                }
+                    "ai_model": feedback.get("ai_model", "unknown"),
+                },
             }
-            
+
             response = requests.post(
                 f"https://api.github.com/repos/{self.github_repo}/dispatches",
                 headers=headers,
-                json=payload
+                json=payload,
             )
-            
+
             if response.status_code == 204:
                 logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
                 return True
             else:
                 logger.error(f"Failed to trigger dispatch: {response.status_code}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Error triggering AI fix dispatch: {e}")
             return False
@@ -420,7 +420,9 @@ class FeedbackWorker:
                     # Trigger AI fix dispatch for high-impact issues
                     if await self.trigger_ai_fix_dispatch(feedback, issue_number):
                         result["ai_fix_triggered"] = True
-                        logger.info(f"AI fix workflow triggered for issue #{issue_number}")
+                        logger.info(
+                            f"AI fix workflow triggered for issue #{issue_number}"
+                        )
 
                 if issue_number:
                     # Mark as processed in API
