@@ -446,7 +446,7 @@ def get_feedback_stats():
                             category = line.split(":")[1].strip()
                             stats["by_category"][category] += 1
                         elif line.startswith("Model:"):
-                            model = line.split(":")[1].strip()
+                            model = line.split(":", 1)[1].strip()
                             stats["top_models"][model] = (
                                 stats["top_models"].get(model, 0) + 1
                             )
@@ -514,7 +514,7 @@ async def dispatch_fix(
 
 
 @app.get("/feedback/{feedback_id}/credits")
-async def get_credits(feedback_id: str):
+def get_credits(feedback_id: str):
     """Get credit attribution for a feedback/fix"""
     # This would retrieve from a database in production
     # For now, parse from files
@@ -535,7 +535,7 @@ async def get_credits(feedback_id: str):
         model_line = [
             line for line in content.split("\n") if line.startswith("Model:")
         ][0]
-        reporter_model = model_line.split(":")[1].strip()
+        reporter_model = model_line.split(":", 1)[1].strip()
 
     return {
         "feedback_id": feedback_id,
@@ -589,7 +589,7 @@ async def github_webhook(payload: dict, x_github_event: str = Header(None)):
 
 
 @app.get("/credits/leaderboard")
-async def get_leaderboard():
+def get_leaderboard():
     """Get the REAL AI contribution leaderboard"""
     # Calculate real stats from feedback data
     model_stats = defaultdict(
@@ -1435,7 +1435,7 @@ async def get_model_activity():
                     # Extract model and category
                     for line in content.split("\n"):
                         if line.startswith("Model:"):
-                            model = line.split(":")[1].strip()
+                            model = line.split(":", 1)[1].strip()
                         elif line.startswith("Category:"):
                             category = line.split(":")[1].strip()
 

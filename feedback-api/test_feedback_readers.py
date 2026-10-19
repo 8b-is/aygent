@@ -17,7 +17,7 @@ def feedback_store(tmp_path, monkeypatch):
             category=category,
             title=f"Synthetic {category}",
             description=f"Synthetic description {index}",
-            ai_model="synthetic",
+            ai_model="vendor:synthetic",
             smart_tree_version="3.3.0",
             impact_score=7,
             frequency_score=5,
@@ -75,11 +75,49 @@ def test_pending_excludes_processed_items(feedback_store):
     assert {item["category"] for item in response.json()} == {"bug", "tool_request"}
 
 
+@pytest.mark.parametrize(
+    "route",
+    ["/feedback/synthetic0/credits", "/feedback/stats", "/stats/model-activity"],
+)
+def test_namespaced_model_identity_is_preserved(feedback_store, route):
+    with TestClient(main.app) as client:
+        response = client.get(route)
+    assert response.status_code == 200
+    data = response.json()
+    if route.endswith("/credits"):
+        assert data["reporter"]["model"] == "vendor:synthetic"
+    elif route.endswith("/stats"):
+        assert data["top_models"] == {"vendor:synthetic": 3}
+    else:
+        assert data["models"]["vendor:synthetic"]["feedback_submitted"] == 3
+        assert "vendor" not in data["models"]
+
+
+def test_leaderboard_aggregates_feedback(feedback_store):
+    with TestClient(main.app) as client:
+        response = client.get("/credits/leaderboard")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_feedback"] == 3
+    assert data["total_impact_points"] == 21
+    assert data["top_reporter"]["ai"] == "vendor:synthetic"
+    assert data["top_reporter"]["issues_found"] == 3
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "route", ["/feedback/stats", "/feedback/pending", "/tools/requested"]
+    "route,expected_status",
+    [
+        ("/feedback/stats", 200),
+        ("/feedback/pending", 200),
+        ("/tools/requested", 200),
+        ("/feedback/missing/credits", 404),
+        ("/credits/leaderboard", 200),
+    ],
 )
-async def test_reader_disk_scans_run_off_loop(tmp_path, monkeypatch, route):
+async def test_reader_disk_scans_run_off_loop(
+    tmp_path, monkeypatch, route, expected_status
+):
     monkeypatch.setattr(main, "FEEDBACK_DIR", tmp_path)
     loop_thread = threading.get_ident()
     storage_threads = []
@@ -98,5 +136,5 @@ async def test_reader_disk_scans_run_off_loop(tmp_path, monkeypatch, route):
         transport=httpx.ASGITransport(app=main.app), base_url="http://test"
     ) as client:
         response = await client.get(route)
-    assert response.status_code == 200
+    assert response.status_code == expected_status
     assert storage_threads and all(t != loop_thread for t in storage_threads)
