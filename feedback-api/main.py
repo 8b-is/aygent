@@ -1513,7 +1513,7 @@ async def llm_assist(
         raise HTTPException(status_code=403, detail="Agent lacks LLM query permission")
 
     assistant = get_assistant()
-    response = await assistant.assist(task)
+    response = await assistant.assist(task, cache_scope=agent["agent_id"])
 
     # Track usage
     await track_tool_usage(
@@ -1544,7 +1544,7 @@ async def llm_batch_assist(
         raise HTTPException(status_code=400, detail="Maximum 10 tasks per batch")
 
     assistant = get_assistant()
-    responses = await assistant.batch_assist(tasks)
+    responses = await assistant.batch_assist(tasks, cache_scope=agent["agent_id"])
 
     return responses
 

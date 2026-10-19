@@ -129,8 +129,8 @@ async def test_assist_cache_hit_and_miss_io_runs_off_loop(storage_dirs, monkeypa
         task = llm.SmartTreeTask(
             task_type="documentation", context="synthetic", request="synthetic"
         )
-        first = await assistant.assist(task)
-        second = await assistant.assist(task)
+        first = await assistant.assist(task, cache_scope="synthetic-caller")
+        second = await assistant.assist(task, cache_scope="synthetic-caller")
     assert len(requests) == 1 and first.cached is False and second.cached is True
     assert first.response == second.response == "Synthetic reply"
     assert observed and all(t != loop_thread for t in observed)

@@ -81,10 +81,22 @@ class SmartTreeAssistant:
             timeout=30.0,
         )
 
-    def _get_cache_key(self, task: SmartTreeTask) -> str:
-        """Generate cache key for task"""
-        content = f"{task.task_type}:{task.request}:{task.context[:500]}"
-        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    def _get_cache_key(
+        self, task: SmartTreeTask, cache_scope: str | None = None
+    ) -> str:
+        """Hash the complete task, model and trusted caller scope unambiguously."""
+        content = json.dumps(
+            {
+                "version": 2,
+                "scope": cache_scope,
+                "model": self._select_model(task.task_type),
+                "task": task.model_dump(mode="json"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        # Legacy truncated keys remain on disk but are never reused.
+        return "v2-" + hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def _get_cached_response(self, cache_key: str) -> LLMResponse | None:
         """Check a complete cached response that is less than one hour old."""
@@ -182,14 +194,17 @@ class SmartTreeAssistant:
         rate = cost_per_million.get(model, 0.10)
         return (tokens / 1_000_000) * rate
 
-    async def assist(self, task: SmartTreeTask) -> LLMResponse:
-        """Process a smart-tree assistance task"""
+    async def assist(
+        self, task: SmartTreeTask, *, cache_scope: str | None = None
+    ) -> LLMResponse:
+        """Process a task; persistent caching requires a trusted caller scope."""
 
         # Check cache first
-        cache_key = self._get_cache_key(task)
-        cached = await run_in_threadpool(self._get_cached_response, cache_key)
-        if cached:
-            return cached
+        cache_key = self._get_cache_key(task, cache_scope)
+        if cache_scope:
+            cached = await run_in_threadpool(self._get_cached_response, cache_key)
+            if cached:
+                return cached
 
         # Select appropriate model
         model = self._select_model(task.task_type)
@@ -234,7 +249,8 @@ class SmartTreeAssistant:
             )
 
             # Cache the response
-            await run_in_threadpool(self._save_to_cache, cache_key, llm_response)
+            if cache_scope:
+                await run_in_threadpool(self._save_to_cache, cache_key, llm_response)
 
             return llm_response
 
@@ -248,14 +264,16 @@ class SmartTreeAssistant:
                 cost_estimate=0.0,
             )
 
-    async def batch_assist(self, tasks: list[SmartTreeTask]) -> list[LLMResponse]:
-        """Process multiple tasks in parallel"""
+    async def batch_assist(
+        self, tasks: list[SmartTreeTask], *, cache_scope: str | None = None
+    ) -> list[LLMResponse]:
+        """Process tasks with the same explicit caller scope, without shared state."""
         # Process up to 5 tasks concurrently
         semaphore = asyncio.Semaphore(5)
 
         async def process_with_limit(task):
             async with semaphore:
-                return await self.assist(task)
+                return await self.assist(task, cache_scope=cache_scope)
 
         results = await asyncio.gather(
             *[process_with_limit(task) for task in tasks], return_exceptions=True
@@ -267,7 +285,7 @@ class SmartTreeAssistant:
             if isinstance(result, Exception):
                 responses.append(
                     LLMResponse(
-                        task_id=self._get_cache_key(tasks[i]),
+                        task_id=self._get_cache_key(tasks[i], cache_scope),
                         model_used="error",
                         response=f"Task failed: {str(result)}",
                         tokens_used=0,

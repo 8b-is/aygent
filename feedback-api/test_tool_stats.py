@@ -107,7 +107,8 @@ async def test_stats_io_runs_off_loop(stats_store, monkeypatch, route):
     monkeypatch.setattr(Path, "open", observe(Path.open))
     monkeypatch.setattr(Path, "glob", observe(Path.glob))
 
-    async def assist(task):
+    async def assist(task, *, cache_scope):
+        assert cache_scope == "agent_claude_001"
         return main.LLMResponse(
             task_id="synthetic",
             model_used="synthetic",
