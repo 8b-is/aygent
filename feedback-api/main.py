@@ -259,6 +259,7 @@ announcements_cache = {}
 feedback_storage_lock = Lock()
 consent_storage_lock = Lock()
 tool_stats_lock = Lock()
+update_decisions_lock = Lock()
 
 
 def generate_feedback_id(feedback: SmartTreeFeedback) -> str:
@@ -1206,7 +1207,7 @@ class UpdateDecision(BaseModel):
 
 
 @app.post("/version/notify-update")
-async def notify_update_decision(decision: UpdateDecision):
+def notify_update_decision(decision: UpdateDecision):
     """Track user decisions on updates for better UX"""
     # Log the decision for analytics
     update_decision = {
@@ -1219,15 +1220,16 @@ async def notify_update_decision(decision: UpdateDecision):
 
     # Save to stats
     stats_file = STATS_DIR / f"update_decisions_{datetime.now(UTC).date()}.json"
-    decisions = []
-    if stats_file.exists():
-        with open(stats_file, "r") as f:
-            decisions = json.load(f)
+    with update_decisions_lock:
+        decisions = []
+        if stats_file.exists():
+            with open(stats_file, "r") as f:
+                decisions = json.load(f)
 
-    decisions.append(update_decision)
-
-    with open(stats_file, "w") as f:
-        json.dump(decisions, f, indent=2, default=str)
+        decisions.append(update_decision)
+        write_atomic_file(
+            stats_file, json.dumps(decisions, indent=2, default=str).encode("utf-8")
+        )
 
     return {
         "message": "Decision recorded",
