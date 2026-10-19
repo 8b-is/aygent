@@ -1,9 +1,9 @@
 """The legacy live check must require explicit consent even in CI."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_manual_check_refuses_without_opt_in():

@@ -4,24 +4,22 @@ Admin Panel for Smart-Tree Feedback System
 Beautiful web interface for managing feedback, agents, and monitoring
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
-import json
-from pathlib import Path
 import hashlib
-from collections import defaultdict
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from auth import (
-    verify_token,
-    check_permission,
-    verify_admin,
-    create_access_token,
     AGENT_KEYS,
     AdminLogin,
+    check_permission,
+    create_access_token,
+    verify_admin,
+    verify_token,
 )
-from llm_assistant import get_assistant, SmartTreeTask
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -665,13 +663,13 @@ async def admin_login(credentials: AdminLogin):
 
 
 @router.get("/api/verify")
-async def verify_admin_token(token_data: Dict = Depends(verify_token)):
+async def verify_admin_token(token_data: dict = Depends(verify_token)):
     """Verify admin token is valid"""
     return {"valid": True, "user": token_data.get("name")}
 
 
 @router.get("/api/stats")
-async def get_admin_stats(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_admin_stats(admin: dict = Depends(check_permission("admin.read"))):
     """Get dashboard statistics"""
     # These would come from database in production
     return {
@@ -684,7 +682,7 @@ async def get_admin_stats(admin: Dict = Depends(check_permission("admin.read")))
 
 @router.get("/api/feedback")
 async def get_feedback_items(
-    admin: Dict = Depends(check_permission("admin.read")), limit: int = 20
+    admin: dict = Depends(check_permission("admin.read")), limit: int = 20
 ):
     """Get recent feedback items"""
     # Read from feedback directory
@@ -727,7 +725,7 @@ async def get_feedback_items(
 
 
 @router.get("/api/agents")
-async def get_agents_list(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_agents_list(admin: dict = Depends(check_permission("admin.read"))):
     """Get list of configured agents"""
     agents = []
     for agent_id, agent_data in AGENT_KEYS.items():
@@ -748,7 +746,7 @@ async def get_agents_list(admin: Dict = Depends(check_permission("admin.read")))
 
 
 @router.get("/api/llm/tasks")
-async def get_llm_tasks(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_llm_tasks(admin: dict = Depends(check_permission("admin.read"))):
     """Get recent LLM tasks"""
     # Read from cache directory
     tasks = []
@@ -778,11 +776,12 @@ async def get_llm_tasks(admin: Dict = Depends(check_permission("admin.read"))):
 
 
 @router.get("/api/monitoring")
-async def get_monitoring_stats(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_monitoring_stats(admin: dict = Depends(check_permission("admin.read"))):
     """Get system monitoring stats"""
     # Calculate uptime (mock for now)
-    import psutil
     import time
+
+    import psutil
 
     boot_time = psutil.boot_time()
     current_time = time.time()
@@ -800,7 +799,7 @@ async def get_monitoring_stats(admin: Dict = Depends(check_permission("admin.rea
 
 @router.post("/api/agents")
 async def create_agent(
-    agent_data: Dict[str, Any], admin: Dict = Depends(check_permission("admin.write"))
+    agent_data: dict[str, Any], admin: dict = Depends(check_permission("admin.write"))
 ):
     """Create new agent"""
     # In production, this would save to database
@@ -821,7 +820,7 @@ async def create_agent(
 
 @router.delete("/api/agents/{agent_id}")
 async def delete_agent(
-    agent_id: str, admin: Dict = Depends(check_permission("admin.write"))
+    agent_id: str, admin: dict = Depends(check_permission("admin.write"))
 ):
     """Delete an agent"""
     if agent_id in AGENT_KEYS:

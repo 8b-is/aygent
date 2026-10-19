@@ -1,13 +1,12 @@
 import time
 from unittest.mock import AsyncMock
 
+import auth
 import httpx
 import jwt
+import main
 import pytest
 from fastapi.testclient import TestClient
-
-import auth
-import main
 
 
 @pytest.fixture

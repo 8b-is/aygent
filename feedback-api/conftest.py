@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 _STORAGE = tempfile.TemporaryDirectory(prefix="aygent-api-tests-")
 for name in ("FEEDBACK_DIR", "STATS_DIR", "CONSENT_DIR", "LLM_CACHE_DIR"):
     directory = Path(_STORAGE.name) / name

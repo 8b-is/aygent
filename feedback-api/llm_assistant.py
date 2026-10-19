@@ -4,15 +4,15 @@ OpenRouter LLM Integration for Smart-Tree Assistance
 Helps with boring/repetitive tasks and provides context
 """
 
-import os
-import httpx
-import json
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
-from datetime import datetime, timezone
-import hashlib
-from pathlib import Path
 import asyncio
+import hashlib
+import json
+import os
+from datetime import UTC, datetime
+from pathlib import Path
+
+import httpx
+from pydantic import BaseModel, Field
 
 # OpenRouter configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -41,11 +41,11 @@ class SmartTreeTask(BaseModel):
     )
     context: str = Field(..., description="Current code context or file content")
     request: str = Field(..., description="What needs to be done")
-    language: Optional[str] = Field(None, description="Programming language")
-    constraints: Optional[List[str]] = Field(
+    language: str | None = Field(None, description="Programming language")
+    constraints: list[str] | None = Field(
         None, description="Any constraints or requirements"
     )
-    examples: Optional[List[str]] = Field(None, description="Example code or outputs")
+    examples: list[str] | None = Field(None, description="Example code or outputs")
 
 
 class LLMResponse(BaseModel):
@@ -57,13 +57,13 @@ class LLMResponse(BaseModel):
     tokens_used: int
     cost_estimate: float
     cached: bool = False
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class SmartTreeAssistant:
     """OpenRouter-powered assistant for Smart-Tree tasks"""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or OPENROUTER_API_KEY
         if not self.api_key:
             raise ValueError("OpenRouter API key required")
@@ -83,7 +83,7 @@ class SmartTreeAssistant:
         content = f"{task.task_type}:{task.request}:{task.context[:500]}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
-    def _get_cached_response(self, cache_key: str) -> Optional[LLMResponse]:
+    def _get_cached_response(self, cache_key: str) -> LLMResponse | None:
         """Check for cached response"""
         cache_file = CACHE_DIR / f"{cache_key}.json"
         if cache_file.exists():
@@ -152,11 +152,11 @@ class SmartTreeAssistant:
 
         # Add constraints if any
         if task.constraints:
-            prompt_parts.append(f"\nConstraints:\n- " + "\n- ".join(task.constraints))
+            prompt_parts.append("\nConstraints:\n- " + "\n- ".join(task.constraints))
 
         # Add examples if provided
         if task.examples:
-            prompt_parts.append(f"\nExamples:\n" + "\n".join(task.examples[:2]))
+            prompt_parts.append("\nExamples:\n" + "\n".join(task.examples[:2]))
 
         # Language hint
         if task.language:
@@ -243,7 +243,7 @@ class SmartTreeAssistant:
                 cost_estimate=0.0,
             )
 
-    async def batch_assist(self, tasks: List[SmartTreeTask]) -> List[LLMResponse]:
+    async def batch_assist(self, tasks: list[SmartTreeTask]) -> list[LLMResponse]:
         """Process multiple tasks in parallel"""
         # Process up to 5 tasks concurrently
         semaphore = asyncio.Semaphore(5)
@@ -343,7 +343,7 @@ class SmartTreeAssistant:
 
 
 # Singleton instance
-_assistant: Optional[SmartTreeAssistant] = None
+_assistant: SmartTreeAssistant | None = None
 
 
 def get_assistant() -> SmartTreeAssistant:

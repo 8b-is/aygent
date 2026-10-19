@@ -4,37 +4,38 @@ Smart Tree Feedback API - The Taco Bell of Directory Tools!
 Collects enhancement requests from AI assistants using smart-tree MCP.
 """
 
-from fastapi import FastAPI, HTTPException, Header, Request, Depends
-from fastapi.responses import PlainTextResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Literal, Any
-from datetime import datetime, timezone
 import hashlib
 import json
-import zlib
-import os
-from pathlib import Path
-import uvicorn
-from collections import defaultdict
 import logging
+import os
 import time
+import zlib
+from collections import defaultdict
+from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Literal
+
+import uvicorn
+from admin_panel import router as admin_router
 
 # Import new modules
 from auth import (
-    AgentAuth,
-    TokenResponse,
-    require_agent_auth,
-    create_access_token,
-    verify_agent_key,
-    rate_limit,
-    RateLimiter,
     AGENT_KEYS,
+    AgentAuth,
+    RateLimiter,
+    TokenResponse,
     check_permission,
+    create_access_token,
+    rate_limit,
+    require_agent_auth,
+    verify_agent_key,
 )
-from llm_assistant import get_assistant, SmartTreeTask, LLMResponse
-from admin_panel import router as admin_router
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+from llm_assistant import LLMResponse, SmartTreeTask, get_assistant
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +75,13 @@ class Announcement(BaseModel):
         ..., description="Priority level"
     )
     active: bool = Field(True, description="Whether announcement is active")
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_at: Optional[datetime] = Field(
-        None, description="When announcement expires"
-    )
-    targets: List[str] = Field(
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime | None = Field(None, description="When announcement expires")
+    targets: list[str] = Field(
         default_factory=lambda: ["all"], description="Target AI models or 'all'"
     )
-    features: Optional[List[str]] = Field(None, description="New features to highlight")
-    tips: Optional[List[str]] = Field(None, description="Pro tips for AIs")
+    features: list[str] | None = Field(None, description="New features to highlight")
+    tips: list[str] | None = Field(None, description="Pro tips for AIs")
 
 
 class CodeExample(BaseModel):
@@ -90,7 +89,7 @@ class CodeExample(BaseModel):
 
     description: str = Field(..., description="What this example demonstrates")
     code: str = Field(..., description="Example code snippet")
-    expected_output: Optional[str] = Field(None, description="Expected output/behavior")
+    expected_output: str | None = Field(None, description="Expected output/behavior")
 
 
 class ToolRequest(BaseModel):
@@ -99,7 +98,7 @@ class ToolRequest(BaseModel):
     tool_name: str = Field(..., description="Proposed tool name")
     description: str = Field(..., description="What the tool should do")
     use_case: str = Field(..., description="Example use case demonstrating need")
-    proposed_parameters: Dict[str, Any] = Field(
+    proposed_parameters: dict[str, Any] = Field(
         ..., description="Suggested tool parameters"
     )
     expected_output: str = Field(..., description="What the tool should return")
@@ -111,10 +110,10 @@ class ToolRequest(BaseModel):
 class ConsentRequest(BaseModel):
     """User consent preferences for feedback submission"""
 
-    user_id: Optional[str] = Field(None, description="Optional user identifier")
+    user_id: str | None = Field(None, description="Optional user identifier")
     consent_level: ConsentLevel = Field(..., description="User's consent preference")
-    github_url: Optional[str] = Field(None, description="GitHub profile for credit")
-    email: Optional[str] = Field(None, description="Contact email for updates")
+    github_url: str | None = Field(None, description="GitHub profile for credit")
+    email: str | None = Field(None, description="Contact email for updates")
 
 
 class SmartTreeFeedback(BaseModel):
@@ -127,33 +126,33 @@ class SmartTreeFeedback(BaseModel):
     )
 
     # Context about where/how the issue was discovered
-    affected_command: Optional[str] = Field(
+    affected_command: str | None = Field(
         None, description="The st command that triggered this"
     )
-    mcp_tool: Optional[str] = Field(
+    mcp_tool: str | None = Field(
         None, description="MCP tool being used when issue found"
     )
 
     # Examples make feedback actionable
-    examples: List[CodeExample] = Field(
+    examples: list[CodeExample] = Field(
         default_factory=list, description="Code examples"
     )
 
     # Proposed solution from the AI
-    proposed_solution: Optional[str] = Field(
+    proposed_solution: str | None = Field(
         None, description="AI's suggested implementation"
     )
-    proposed_fix: Optional[str] = Field(None, description="AI's proposed code fix")
+    proposed_fix: str | None = Field(None, description="AI's proposed code fix")
 
     # Metadata
     ai_model: str = Field(
         ..., description="AI model submitting feedback (e.g., claude-3-opus)"
     )
-    ai_provider: Optional[str] = Field(
+    ai_provider: str | None = Field(
         None, description="Provider (e.g., anthropic, openai)"
     )
     smart_tree_version: str = Field(..., description="Version of smart-tree being used")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Priority scoring from AI's perspective
     impact_score: int = Field(..., ge=1, le=10, description="Impact score 1-10")
@@ -162,26 +161,26 @@ class SmartTreeFeedback(BaseModel):
     )
 
     # Additional context
-    tags: List[str] = Field(default_factory=list, description="Tags for categorization")
-    related_issues: List[str] = Field(
+    tags: list[str] = Field(default_factory=list, description="Tags for categorization")
+    related_issues: list[str] = Field(
         default_factory=list, description="Related feedback IDs"
     )
 
     # Auto-fix support
-    auto_fixable: Optional[bool] = Field(
+    auto_fixable: bool | None = Field(
         None, description="Can this be automatically fixed?"
     )
-    fix_complexity: Optional[Literal["trivial", "simple", "moderate", "complex"]] = (
-        Field(None)
+    fix_complexity: Literal["trivial", "simple", "moderate", "complex"] | None = Field(
+        None
     )
 
     # Tool request details (when category is "tool_request")
-    tool_request: Optional[ToolRequest] = Field(
+    tool_request: ToolRequest | None = Field(
         None, description="Details for requested tool"
     )
 
     # Consent info
-    user_consent: Optional[ConsentRequest] = Field(
+    user_consent: ConsentRequest | None = Field(
         None, description="User consent preferences"
     )
 
@@ -191,8 +190,8 @@ class FixDispatch(BaseModel):
 
     feedback_id: str
     branch_name: str
-    assigned_ai: Optional[str] = Field(None, description="AI assigned to implement fix")
-    dispatch_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_ai: str | None = Field(None, description="AI assigned to implement fix")
+    dispatch_time: datetime = Field(default_factory=lambda: datetime.now(UTC))
     status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
 
 
@@ -202,12 +201,10 @@ class CreditAttribution(BaseModel):
     feedback_id: str
     reporter_ai: str = Field(..., description="AI who reported the issue")
     reporter_model: str
-    implementer_ai: Optional[str] = Field(
-        None, description="AI who implemented the fix"
-    )
-    implementer_model: Optional[str] = None
-    pr_url: Optional[str] = None
-    merged_at: Optional[datetime] = None
+    implementer_ai: str | None = Field(None, description="AI who implemented the fix")
+    implementer_model: str | None = None
+    pr_url: str | None = None
+    merged_at: datetime | None = None
 
 
 class ToolUsageStats(BaseModel):
@@ -217,8 +214,8 @@ class ToolUsageStats(BaseModel):
     model_type: str = Field(..., description="AI model type (opus, sonnet, gpt4, etc)")
     usage_count: int = Field(default=1)
     success_rate: float = Field(..., ge=0, le=1)
-    avg_execution_time_ms: Optional[float] = None
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    avg_execution_time_ms: float | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class FeedbackResponse(BaseModel):
@@ -281,7 +278,7 @@ async def health_check():
     # Check if directories are accessible
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "checks": {
             "feedback_dir": FEEDBACK_DIR.exists(),
             "stats_dir": STATS_DIR.exists(),
@@ -304,8 +301,8 @@ async def health_check():
 async def submit_feedback(
     request: Request,
     feedback: SmartTreeFeedback,
-    x_mcp_client: Optional[str] = Header(None, description="MCP client identifier"),
-    agent: Optional[Dict] = Depends(require_agent_auth),
+    x_mcp_client: str | None = Header(None, description="MCP client identifier"),
+    agent: dict | None = Depends(require_agent_auth),
 ):
     """Submit feedback from AI assistants (requires authentication)"""
     try:
@@ -416,8 +413,8 @@ async def get_feedback_stats():
 async def dispatch_fix(
     feedback_id: str,
     auto_assign: bool = True,
-    assigned_ai: Optional[str] = None,
-    principal: Dict = Depends(check_permission("feedback.dispatch")),
+    assigned_ai: str | None = None,
+    principal: dict = Depends(check_permission("feedback.dispatch")),
 ):
     """Dispatch an AI to fix the reported issue"""
     # Check if feedback exists
@@ -511,7 +508,7 @@ async def get_credits(feedback_id: str):
 
 
 @app.post("/webhook/github")
-async def github_webhook(payload: Dict, x_github_event: str = Header(None)):
+async def github_webhook(payload: dict, x_github_event: str = Header(None)):
     """Handle GitHub webhooks for PR creation/merge"""
     if x_github_event == "pull_request":
         action = payload.get("action")
@@ -622,7 +619,7 @@ async def get_leaderboard():
 
     return {
         "message": "🏆 Smart Tree AI Contributors Leaderboard (REAL DATA!) 🏆",
-        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "last_updated": datetime.now(UTC).isoformat(),
         "total_feedback": total_feedback,
         "total_impact_points": total_impact,
         "reporters": reporters,
@@ -654,7 +651,7 @@ async def track_tool_usage(stats: ToolUsageStats):
     tool_stats_cache[stats.tool_name]["last_used"] = stats.timestamp
 
     # Save to disk periodically
-    stats_file = STATS_DIR / f"tool_stats_{datetime.now(timezone.utc).date()}.json"
+    stats_file = STATS_DIR / f"tool_stats_{datetime.now(UTC).date()}.json"
     with open(stats_file, "w") as f:
         json.dump(dict(tool_stats_cache), f, indent=2, default=str)
 
@@ -938,7 +935,7 @@ async def get_latest_version():
 
 @app.get("/install", response_class=PlainTextResponse)
 @app.get("/tree", response_class=PlainTextResponse)  # Short and sweet! 🌲
-async def get_install_script(version: Optional[str] = None):
+async def get_install_script(version: str | None = None):
     """Get Smart Tree installation/update script"""
 
     install_script = """#!/bin/bash
@@ -1171,7 +1168,7 @@ async def notify_update_decision(decision: UpdateDecision):
     """Track user decisions on updates for better UX"""
     # Log the decision for analytics
     update_decision = {
-        "timestamp": datetime.now(timezone.utc),
+        "timestamp": datetime.now(UTC),
         "current_version": decision.current_version,
         "latest_version": decision.latest_version,
         "decision": decision.user_decision,
@@ -1179,9 +1176,7 @@ async def notify_update_decision(decision: UpdateDecision):
     }
 
     # Save to stats
-    stats_file = (
-        STATS_DIR / f"update_decisions_{datetime.now(timezone.utc).date()}.json"
-    )
+    stats_file = STATS_DIR / f"update_decisions_{datetime.now(UTC).date()}.json"
     decisions = []
     if stats_file.exists():
         with open(stats_file, "r") as f:
@@ -1203,11 +1198,9 @@ async def notify_update_decision(decision: UpdateDecision):
 
 
 @app.get("/announcements")
-async def get_announcements(
-    ai_model: Optional[str] = None, priority: Optional[str] = None
-):
+async def get_announcements(ai_model: str | None = None, priority: str | None = None):
     """Get active announcements for AI systems"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     active_announcements = []
 
     # Load announcements from cache or create defaults
@@ -1463,7 +1456,7 @@ async def list_api_keys():
 async def llm_assist(
     request: Request,
     task: SmartTreeTask,
-    agent: Dict = Depends(require_agent_auth),
+    agent: dict = Depends(require_agent_auth),
 ):
     """Get LLM assistance for Smart-Tree tasks"""
     # Check if agent has LLM permissions
@@ -1487,12 +1480,12 @@ async def llm_assist(
     return response
 
 
-@app.post("/llm/batch", response_model=List[LLMResponse])
+@app.post("/llm/batch", response_model=list[LLMResponse])
 @rate_limit(max_requests=10, window_seconds=60)
 async def llm_batch_assist(
     request: Request,
-    tasks: List[SmartTreeTask],
-    agent: Dict = Depends(require_agent_auth),
+    tasks: list[SmartTreeTask],
+    agent: dict = Depends(require_agent_auth),
 ):
     """Process multiple LLM tasks in batch"""
     if "llm.query" not in agent["permissions"] and "*" not in agent["permissions"]:
@@ -1542,7 +1535,7 @@ async def list_available_models():
 @app.get("/rate-limit/status")
 async def get_rate_limit_status(
     request: Request,
-    agent: Optional[Dict] = Depends(require_agent_auth),
+    agent: dict | None = Depends(require_agent_auth),
 ):
     """Get current rate limit status for agent"""
     if agent:
@@ -1565,9 +1558,9 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("🌲 Smart Tree Feedback API v2.0")
     print("=" * 60)
-    print(f"📮 API Docs: http://localhost:8420/api/docs")
-    print(f"🔐 Admin Panel: http://localhost:8420/admin")
-    print(f"🔑 Get API Keys: http://localhost:8420/auth/keys")
+    print("📮 API Docs: http://localhost:8420/api/docs")
+    print("🔐 Admin Panel: http://localhost:8420/admin")
+    print("🔑 Get API Keys: http://localhost:8420/auth/keys")
     print("=" * 60 + "\n")
 
     # Run on port 8420 (Mem|8 standard)

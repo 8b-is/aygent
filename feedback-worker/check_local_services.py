@@ -3,8 +3,9 @@
 Test script for feedback worker
 """
 
-import asyncio
 import argparse
+import asyncio
+
 import httpx
 
 # Manual checks are restricted to a disposable local service.

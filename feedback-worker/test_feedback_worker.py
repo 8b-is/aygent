@@ -4,9 +4,10 @@ Test suite for ST-AYGENT Feedback Worker
 "Quality assurance with pizzazz!" - Trisha from Accounting
 """
 
-import pytest
 import os
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 # Set test environment
 os.environ["GITHUB_TOKEN"] = "fake_token_for_testing"

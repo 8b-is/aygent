@@ -5,20 +5,19 @@ Mean ass efficient feedback processor that turns user suggestions into GitHub is
 """
 
 import asyncio
+import hashlib
 import json
+import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, List, Optional
-import hashlib
 
 import aiohttp
 import redis.asyncio as redis
-from github import Github, GithubException
-import uvloop
-from prometheus_client import Counter, Histogram, start_http_server
-import logging
 import requests
+import uvloop
+from github import Github, GithubException
+from prometheus_client import Counter, Histogram, start_http_server
 
 # Metrics
 feedback_processed = Counter(
@@ -150,7 +149,7 @@ class FeedbackWorker:
             await self.session.close()
         await self.disconnect()
 
-    def prioritize_feedback(self, feedback: Dict) -> str:
+    def prioritize_feedback(self, feedback: dict) -> str:
         """Prioritize feedback based on impact and frequency scores"""
         impact = feedback.get("impact_score", 0)
         frequency = feedback.get("frequency_score", 0)
@@ -172,7 +171,7 @@ class FeedbackWorker:
         else:
             return "low"
 
-    def categorize_feedback(self, feedback: Dict) -> str:
+    def categorize_feedback(self, feedback: dict) -> str:
         """Categorize feedback as bug, feature, or teleportation goal"""
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
 
@@ -206,7 +205,7 @@ class FeedbackWorker:
         # Default to enhancement
         return "enhancement"
 
-    def generate_fingerprint(self, feedback: Dict) -> str:
+    def generate_fingerprint(self, feedback: dict) -> str:
         """Generate fingerprint for duplicate detection"""
         # Normalize text
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
@@ -223,7 +222,7 @@ class FeedbackWorker:
         fingerprint_text = " ".join(sorted(important_words[:10]))
         return hashlib.sha256(fingerprint_text.encode()).hexdigest()[:16]
 
-    async def check_duplicate(self, feedback: Dict) -> Optional[int]:
+    async def check_duplicate(self, feedback: dict) -> int | None:
         """Check if feedback is duplicate, return issue number if found"""
         fingerprint = self.generate_fingerprint(feedback)
 
@@ -264,7 +263,7 @@ class FeedbackWorker:
 
         return None
 
-    async def trigger_ai_fix_dispatch(self, feedback: Dict, issue_number: int) -> bool:
+    async def trigger_ai_fix_dispatch(self, feedback: dict, issue_number: int) -> bool:
         """Trigger GitHub Actions workflow for AI to implement fix"""
         if not self.gh or not self.repo:
             return False
@@ -317,7 +316,7 @@ class FeedbackWorker:
             logger.error(f"Error triggering AI fix dispatch: {e}")
             return False
 
-    async def create_github_issue(self, feedback: Dict, category: str) -> Optional[int]:
+    async def create_github_issue(self, feedback: dict, category: str) -> int | None:
         """Create GitHub issue from feedback"""
         if not self.repo:
             logger.warning("GitHub repo not configured - skipping issue creation")
@@ -396,7 +395,7 @@ class FeedbackWorker:
             feedback_errors.inc()
             return None
 
-    async def process_feedback(self, feedback: Dict) -> Optional[Dict]:
+    async def process_feedback(self, feedback: dict) -> dict | None:
         """Process a single feedback item"""
         with processing_time.time():
             try:
@@ -450,7 +449,7 @@ class FeedbackWorker:
                 await self.redis.lpush("feedback:retry", json.dumps(feedback))
                 return None
 
-    async def fetch_pending_feedback(self) -> List[Dict]:
+    async def fetch_pending_feedback(self) -> list[dict]:
         """Fetch pending feedback from API"""
         try:
             async with self.session.get(

@@ -5,19 +5,19 @@ Authentication and Rate Limiting for Feedback API
 
 import hashlib
 import hmac
-import time
-import secrets
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta, timezone
-from functools import wraps
-from collections import defaultdict
-import jwt
-from fastapi import HTTPException, Header, Request, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
-import redis
-import json
 import os
+import secrets
+import time
+from collections import defaultdict
+from datetime import UTC, datetime, timedelta
+from functools import wraps
+from typing import Any
+
+import jwt
+import redis
+from fastapi import Depends, Header, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
 # Configuration
 JWT_SECRET = os.getenv("JWT_SECRET", secrets.token_urlsafe(32))
@@ -94,7 +94,7 @@ class TokenResponse(BaseModel):
 security = HTTPBearer()
 
 
-def verify_agent_key(agent_id: str, api_key: str) -> Optional[Dict[str, Any]]:
+def verify_agent_key(agent_id: str, api_key: str) -> dict[str, Any] | None:
     """Verify agent API key"""
     if agent_id not in AGENT_KEYS:
         return None
@@ -108,16 +108,16 @@ def verify_agent_key(agent_id: str, api_key: str) -> Optional[Dict[str, Any]]:
     return agent
 
 
-def create_access_token(agent_id: str, agent_data: Dict[str, Any]) -> str:
+def create_access_token(agent_id: str, agent_data: dict[str, Any]) -> str:
     """Create JWT access token"""
-    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+    expire = datetime.now(UTC) + timedelta(hours=JWT_EXPIRATION_HOURS)
 
     payload = {
         "sub": agent_id,
         "name": agent_data["name"],
         "permissions": agent_data["permissions"],
         "exp": expire,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
     }
 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -125,7 +125,7 @@ def create_access_token(agent_id: str, agent_data: Dict[str, Any]) -> str:
 
 def verify_token(
     credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Verify JWT token"""
     token = credentials.credentials
 
@@ -141,7 +141,7 @@ def verify_token(
 def check_permission(required_permission: str):
     """Check if user has required permission"""
 
-    def permission_checker(token_data: Dict = Depends(verify_token)):
+    def permission_checker(token_data: dict = Depends(verify_token)):
         permissions = token_data.get("permissions", [])
 
         # Check for wildcard permission
@@ -215,7 +215,7 @@ class RateLimiter:
     @staticmethod
     def get_remaining(
         identifier: str, max_requests: int = 60, window_seconds: int = 60
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get remaining requests and reset time"""
 
         if redis_client:
@@ -307,8 +307,8 @@ def rate_limit(max_requests: int = 60, window_seconds: int = 60):
 
 
 def require_agent_auth(
-    request: Request, x_api_key: Optional[str] = Header(None)
-) -> Dict[str, Any]:
+    request: Request, x_api_key: str | None = Header(None)
+) -> dict[str, Any]:
     """Require agent authentication via API key"""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
@@ -330,7 +330,7 @@ def require_agent_auth(
     return {"agent_id": agent_id, **agent}
 
 
-def load_admin_users() -> Dict[str, str]:
+def load_admin_users() -> dict[str, str]:
     """Only explicitly configured, nonempty admin passwords enable login."""
     users = {}
     for username, variable in (("admin", "ADMIN_PASSWORD"), ("hue", "HUE_PASSWORD")):
