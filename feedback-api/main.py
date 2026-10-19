@@ -258,6 +258,7 @@ tool_stats_cache = defaultdict(
 consent_cache = {}
 announcements_cache = {}
 announcements_lock = Lock()
+dispatch_storage_lock = Lock()
 feedback_storage_lock = Lock()
 consent_storage_lock = Lock()
 tool_stats_lock = Lock()
@@ -440,6 +441,12 @@ def get_feedback_stats():
     return stats
 
 
+def write_dispatch_record(path: Path, dispatch: FixDispatch):
+    """Coordinate dispatch publication with webhook state updates."""
+    with dispatch_storage_lock:
+        write_atomic_file(path, dispatch.model_dump_json(indent=2).encode("utf-8"))
+
+
 @app.post("/feedback/{feedback_id}/dispatch-fix")
 async def dispatch_fix(
     feedback_id: str,
@@ -473,8 +480,7 @@ async def dispatch_fix(
 
     # Save dispatch record
     dispatch_file = feedback_file.parent / f"{feedback_id}.dispatch.json"
-    with open(dispatch_file, "w") as f:
-        f.write(dispatch.model_dump_json(indent=2))
+    await run_in_threadpool(write_dispatch_record, dispatch_file, dispatch)
 
     # Trigger webhook if configured
     webhook_url = os.getenv("SMART_TREE_FIX_WEBHOOK")
@@ -540,38 +546,73 @@ def get_credits(feedback_id: str):
 
 
 @app.post("/webhook/github", dependencies=[Depends(verify_github_webhook)])
-async def github_webhook(payload: dict, x_github_event: str = Header(None)):
+def github_webhook(payload: dict, x_github_event: str = Header(None)):
     """Handle GitHub webhooks for PR creation/merge"""
-    if x_github_event == "pull_request":
-        action = payload.get("action")
-        pr = payload.get("pull_request", {})
+    processed = {"status": "webhook processed"}
+    action = payload.get("action")
+    if x_github_event != "pull_request" or action not in ("opened", "closed"):
+        return processed
 
-        if action == "opened" and "fix/" in pr.get("head", {}).get("ref", ""):
-            # Extract feedback ID from branch name
-            branch = pr["head"]["ref"]
-            feedback_id = branch.split("/")[1].split("-")[0]
+    repository = payload.get("repository")
+    pr = payload.get("pull_request")
+    if not isinstance(repository, dict) or not isinstance(pr, dict):
+        raise HTTPException(status_code=422, detail="Invalid pull request payload")
+    # This handler tracks the API's Smart Tree dispatches, not worker ai-fix PRs.
+    target_repository = "8b-is/smart-tree"
+    if repository.get("full_name") != target_repository:
+        return {"status": "ignored", "reason": "unrelated repository"}
+    head, base = pr.get("head"), pr.get("base")
+    if not isinstance(head, dict) or not isinstance(base, dict):
+        raise HTTPException(status_code=422, detail="Invalid pull request refs")
+    if not isinstance(head.get("repo"), dict) or not isinstance(base.get("repo"), dict):
+        raise HTTPException(status_code=422, detail="Invalid pull request repositories")
+    if any(ref["repo"].get("full_name") != target_repository for ref in (head, base)):
+        return {"status": "ignored", "reason": "unrelated repository"}
+    branch = head.get("ref")
+    number = pr.get("number")
+    if not isinstance(branch, str) or type(number) is not int or number < 1:
+        raise HTTPException(status_code=422, detail="Invalid pull request identity")
+    pr_url = f"https://github.com/{target_repository}/pull/{number}"
+    if pr.get("html_url") != pr_url:
+        raise HTTPException(status_code=422, detail="Invalid pull request URL")
+    if not branch.startswith("fix/"):
+        return {"status": "ignored", "reason": "unrelated branch"}
+    if action == "closed":
+        if type(pr.get("merged")) is not bool:
+            raise HTTPException(status_code=422, detail="Invalid merged flag")
+        if not pr["merged"]:
+            return processed
 
-            # Update dispatch status
-            for date_dir in FEEDBACK_DIR.glob("*"):
-                dispatch_file = date_dir / f"{feedback_id}.dispatch.json"
-                if dispatch_file.exists():
-                    with open(dispatch_file, "r") as f:
-                        dispatch = json.load(f)
-                    dispatch["status"] = "in_progress"
-                    dispatch["pr_url"] = pr["html_url"]
-                    with open(dispatch_file, "w") as f:
-                        json.dump(dispatch, f, indent=2)
-                    break
-
-        elif action == "closed" and pr.get("merged"):
-            # Credit the implementer
-            branch = pr["head"]["ref"]
-            if "fix/" in branch:
-                feedback_id = branch.split("/")[1].split("-")[0]
-                # Here you would update credits in production database
-                return {"message": f"Fix merged! Credits recorded for {feedback_id}"}
-
-    return {"status": "webhook processed"}
+    with dispatch_storage_lock:
+        matches = []
+        for path in FEEDBACK_DIR.glob("*/*.dispatch.json"):
+            with path.open("r") as stream:
+                data = json.load(stream)
+            dispatch = FixDispatch.model_validate(data)
+            if path.name != f"{dispatch.feedback_id}.dispatch.json":
+                raise ValueError("Dispatch filename does not match feedback ID")
+            if dispatch.branch_name == branch:
+                matches.append((path, data))
+        if len(matches) > 1:
+            raise HTTPException(status_code=409, detail="Ambiguous dispatch branch")
+        if not matches:
+            return {"status": "ignored", "reason": "no matching dispatch"}
+        path, data = matches[0]
+        if data.get("pr_url") not in (None, pr_url):
+            raise HTTPException(
+                status_code=409, detail="Dispatch belongs to another PR"
+            )
+        if data.get("status", "pending") in ("completed", "failed"):
+            return processed
+        updated = {
+            **data,
+            "pr_url": pr_url,
+            "status": "completed" if action == "closed" else "in_progress",
+        }
+        if updated != data:
+            write_atomic_file(path, json.dumps(updated, indent=2).encode("utf-8"))
+    # Credit persistence is not implemented; do not claim credits were recorded.
+    return processed
 
 
 @app.get("/credits/leaderboard")

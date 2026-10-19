@@ -20,7 +20,15 @@ def dispatch_record(tmp_path, monkeypatch):
     date = tmp_path / "synthetic-date"
     date.mkdir()
     target = date / "12345678.dispatch.json"
-    target.write_text(json.dumps({"feedback_id": "12345678", "status": "pending"}))
+    target.write_text(
+        json.dumps(
+            {
+                "feedback_id": "12345678",
+                "branch_name": "fix/12345678-auto-fix",
+                "status": "pending",
+            }
+        )
+    )
     return target
 
 
@@ -28,8 +36,14 @@ def body(action="opened", *, indent=None, ensure_ascii=True):
     return json.dumps(
         {
             "action": action,
+            "repository": {"full_name": "8b-is/smart-tree"},
             "pull_request": {
-                "head": {"ref": "fix/12345678-auto-fix"},
+                "head": {
+                    "ref": "fix/12345678-auto-fix",
+                    "repo": {"full_name": "8b-is/smart-tree"},
+                },
+                "base": {"repo": {"full_name": "8b-is/smart-tree"}},
+                "number": 999999,
                 "html_url": "https://github.com/8b-is/smart-tree/pull/999999",
                 "title": "Synthetic 🌲",
                 "merged": action == "closed",

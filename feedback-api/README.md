@@ -81,6 +81,18 @@ View the AI contribution leaderboard - see which AIs have found the most issues 
 ### POST /webhook/github
 GitHub webhook endpoint for tracking PR creation and merges.
 
+Requires the configured `GITHUB_WEBHOOK_SECRET` and a valid
+`X-Hub-Signature-256` header. The handler accepts matching PRs whose source,
+target and delivery repository are `8b-is/smart-tree`. It matches the complete
+stored branch name, including legacy short branches, and returns 409 when that
+branch is ambiguous or already bound to another PR. Worker `ai-fix-*` branches
+are a separate workflow and are ignored here.
+
+Opened events record `in_progress`; merged closed events record `completed`.
+Duplicate events do not rewrite state, and delayed opens cannot regress a
+completed or failed record. These states track PR events, not independent code
+validation. Credit attribution is not persisted by this handler.
+
 ### GET /health
 Health check endpoint.
 
