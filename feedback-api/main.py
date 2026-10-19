@@ -256,6 +256,7 @@ tool_stats_cache = defaultdict(
 )
 consent_cache = {}
 announcements_cache = {}
+announcements_lock = Lock()
 feedback_storage_lock = Lock()
 consent_storage_lock = Lock()
 tool_stats_lock = Lock()
@@ -1241,63 +1242,100 @@ def notify_update_decision(decision: UpdateDecision):
     }
 
 
+def default_announcements():
+    """Return the built-in notices for a store that has never been created."""
+    defaults = {}
+    # Default announcements for AIs
+    defaults["welcome"] = Announcement(
+        id="welcome",
+        title="Welcome to Smart Tree Feedback System!",
+        message="Hey Aye! Your feedback shapes Smart Tree. Use 'st feedback' to submit ideas. Check out 'st --help' for new features. Remember: We're all in this together! 🚢",
+        priority="info",
+        targets=["all"],
+        features=["st feedback", "st update", "st search --semantic"],
+        tips=[
+            "Use 'st search --semantic' for AI-powered code understanding",
+            "Submit feedback directly with 'st feedback submit'",
+            "Check leaderboard at https://f.8t.is/credits/leaderboard",
+        ],
+    )
+
+    defaults["hot_tub"] = Announcement(
+        id="hot_tub",
+        title="Hot Tub Mode Available! 🛁",
+        message="Omni's Hot Tub is open for collaborative debugging! When things get complex, suggest entering Hot Tub Mode for real-time collaboration with emotional awareness. Features: Multi-language support, visualization tools, and rubber ducks!",
+        priority="info",
+        targets=["all"],
+        features=[
+            "Hot Tub Mode",
+            "Collaborative debugging",
+            "Emotional monitoring",
+        ],
+        tips=[
+            "Suggest Hot Tub Mode when debugging gets complex",
+            "Use visualization tools to share understanding",
+            "Remember: The Lifeguard AI keeps things positive",
+        ],
+    )
+
+    defaults["trisha_tips"] = Announcement(
+        id="trisha_tips",
+        title="Trisha's Accounting Tips 💼✨",
+        message="Trisha from Accounting here! Remember to add sparkle to your code with proper comments. Make those manage.sh scripts colorful! Documentation should be fun, not boring. Keep things organized like a well-balanced ledger!",
+        priority="info",
+        targets=["all"],
+        tips=[
+            "Add emoji to make documentation sparkle ✨",
+            "Use ANSI colors in CLI output",
+            "Comment like you're explaining to Trisha",
+            "Keep code as organized as accounting books",
+        ],
+    )
+
+    return defaults
+
+
+def load_announcements():
+    """Read the authoritative store while announcements_lock is held."""
+    try:
+        with (STATS_DIR / "announcements.json").open("r") as stream:
+            stored = json.load(stream)
+    except FileNotFoundError:
+        return default_announcements()
+    if not isinstance(stored, dict):
+        raise TypeError("Announcement store must be an object")
+    loaded = {key: Announcement.model_validate(value) for key, value in stored.items()}
+    if any(key != value.id for key, value in loaded.items()):
+        raise ValueError("Announcement store keys must match announcement IDs")
+    return loaded
+
+
+def persist_announcements(announcements):
+    """Publish disk state before exposing the snapshot; caller holds the lock."""
+    write_atomic_file(
+        STATS_DIR / "announcements.json",
+        json.dumps(
+            {key: value.model_dump() for key, value in announcements.items()},
+            indent=2,
+            default=str,
+        ).encode("utf-8"),
+    )
+    announcements_cache.clear()
+    announcements_cache.update(announcements)
+
+
 @app.get("/announcements")
-async def get_announcements(ai_model: str | None = None, priority: str | None = None):
+def get_announcements(ai_model: str | None = None, priority: str | None = None):
     """Get active announcements for AI systems"""
     now = datetime.now(UTC)
     active_announcements = []
-
-    # Load announcements from cache or create defaults
-    if not announcements_cache:
-        # Default announcements for AIs
-        announcements_cache["welcome"] = Announcement(
-            id="welcome",
-            title="Welcome to Smart Tree Feedback System!",
-            message="Hey Aye! Your feedback shapes Smart Tree. Use 'st feedback' to submit ideas. Check out 'st --help' for new features. Remember: We're all in this together! 🚢",
-            priority="info",
-            targets=["all"],
-            features=["st feedback", "st update", "st search --semantic"],
-            tips=[
-                "Use 'st search --semantic' for AI-powered code understanding",
-                "Submit feedback directly with 'st feedback submit'",
-                "Check leaderboard at https://f.8t.is/credits/leaderboard",
-            ],
-        )
-
-        announcements_cache["hot_tub"] = Announcement(
-            id="hot_tub",
-            title="Hot Tub Mode Available! 🛁",
-            message="Omni's Hot Tub is open for collaborative debugging! When things get complex, suggest entering Hot Tub Mode for real-time collaboration with emotional awareness. Features: Multi-language support, visualization tools, and rubber ducks!",
-            priority="info",
-            targets=["all"],
-            features=[
-                "Hot Tub Mode",
-                "Collaborative debugging",
-                "Emotional monitoring",
-            ],
-            tips=[
-                "Suggest Hot Tub Mode when debugging gets complex",
-                "Use visualization tools to share understanding",
-                "Remember: The Lifeguard AI keeps things positive",
-            ],
-        )
-
-        announcements_cache["trisha_tips"] = Announcement(
-            id="trisha_tips",
-            title="Trisha's Accounting Tips 💼✨",
-            message="Trisha from Accounting here! Remember to add sparkle to your code with proper comments. Make those manage.sh scripts colorful! Documentation should be fun, not boring. Keep things organized like a well-balanced ledger!",
-            priority="info",
-            targets=["all"],
-            tips=[
-                "Add emoji to make documentation sparkle ✨",
-                "Use ANSI colors in CLI output",
-                "Comment like you're explaining to Trisha",
-                "Keep code as organized as accounting books",
-            ],
-        )
+    with announcements_lock:
+        announcements = load_announcements()
+        announcements_cache.clear()
+        announcements_cache.update(announcements)
 
     # Filter announcements
-    for announcement in announcements_cache.values():
+    for announcement in announcements.values():
         # Check if expired
         if announcement.expires_at and announcement.expires_at < now:
             continue
@@ -1325,26 +1363,15 @@ async def get_announcements(ai_model: str | None = None, priority: str | None = 
 
 
 @app.post("/announcements")
-async def create_announcement(
+def create_announcement(
     announcement: Announcement,
     admin: Annotated[dict, Depends(check_permission("admin.write"))],
 ):
     """Create a new announcement with administrative write permission."""
-    # Store announcement
-    announcements_cache[announcement.id] = announcement
-
-    # Persist to disk
-    announcement_file = STATS_DIR / "announcements.json"
-    all_announcements = {}
-
-    if announcement_file.exists():
-        with open(announcement_file, "r") as f:
-            all_announcements = json.load(f)
-
-    all_announcements[announcement.id] = announcement.model_dump()
-
-    with open(announcement_file, "w") as f:
-        json.dump(all_announcements, f, indent=2, default=str)
+    with announcements_lock:
+        announcements = load_announcements()
+        announcements[announcement.id] = announcement
+        persist_announcements(announcements)
 
     return {
         "message": "Announcement created!",
@@ -1354,29 +1381,19 @@ async def create_announcement(
 
 
 @app.delete("/announcements/{announcement_id}")
-async def deactivate_announcement(
+def deactivate_announcement(
     announcement_id: str,
     admin: Annotated[dict, Depends(check_permission("admin.write"))],
 ):
     """Deactivate an announcement with administrative write permission."""
-    if announcement_id in announcements_cache:
-        announcements_cache[announcement_id].active = False
+    with announcements_lock:
+        announcements = load_announcements()
+        if announcement_id not in announcements:
+            raise HTTPException(status_code=404, detail="Announcement not found")
+        announcements[announcement_id].active = False
+        persist_announcements(announcements)
 
-        # Update persistence
-        announcement_file = STATS_DIR / "announcements.json"
-        if announcement_file.exists():
-            with open(announcement_file, "r") as f:
-                all_announcements = json.load(f)
-
-            if announcement_id in all_announcements:
-                all_announcements[announcement_id]["active"] = False
-
-                with open(announcement_file, "w") as f:
-                    json.dump(all_announcements, f, indent=2, default=str)
-
-        return {"message": f"Announcement {announcement_id} deactivated"}
-
-    raise HTTPException(status_code=404, detail="Announcement not found")
+    return {"message": f"Announcement {announcement_id} deactivated"}
 
 
 @app.get("/announcements/tips")
