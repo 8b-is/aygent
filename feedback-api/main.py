@@ -403,11 +403,11 @@ async def submit_feedback(
 
 
 @app.get("/feedback/stats")
-async def get_feedback_stats():
+def get_feedback_stats():
     """Get statistics about collected feedback"""
     stats = {
         "total_feedback": 0,
-        "by_category": {"bug": 0, "nice_to_have": 0, "critical": 0},
+        "by_category": {"bug": 0, "nice_to_have": 0, "critical": 0, "tool_request": 0},
         "by_date": {},
         "top_models": {},
         "compression_stats": {
@@ -758,7 +758,7 @@ async def check_consent(user_id: str):
 
 
 @app.get("/feedback/pending")
-async def get_pending_feedback(limit: int = 10, offset: int = 0):
+def get_pending_feedback(limit: int = 10, offset: int = 0):
     """Get pending feedback items for processing"""
     pending_items = []
 
@@ -792,8 +792,8 @@ async def get_pending_feedback(limit: int = 10, offset: int = 0):
 
                     pending_items.append(feedback_data)
 
-                    if len(pending_items) >= limit:
-                        return pending_items
+                    if len(pending_items) >= offset + limit:
+                        return pending_items[offset : offset + limit]
 
             except Exception as e:
                 print(f"Error reading feedback file {feedback_file}: {e}")
@@ -822,7 +822,7 @@ async def mark_feedback_processed(feedback_id: str):
 
 
 @app.get("/tools/requested")
-async def get_requested_tools():
+def get_requested_tools():
     """Get all tool requests from AI assistants"""
     tool_requests = []
 
@@ -834,7 +834,9 @@ async def get_requested_tools():
                     content = f.read()
                     if "Category: tool_request" in content:
                         # Parse the full feedback file
-                        feedback_file = summary_file.with_suffix(".stfb")
+                        feedback_file = summary_file.with_suffix("").with_suffix(
+                            ".stfb"
+                        )
                         if feedback_file.exists():
                             tool_requests.append(
                                 {
