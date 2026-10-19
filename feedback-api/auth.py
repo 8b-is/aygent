@@ -67,6 +67,24 @@ except:
 rate_limit_cache = defaultdict(lambda: {"count": 0, "reset_time": time.time() + 60})
 
 
+async def verify_github_webhook(
+    request: Request,
+    x_hub_signature_256: Annotated[str | None, Header()] = None,
+):
+    """Authenticate the exact bytes GitHub signed before processing a delivery."""
+    secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+    if not secret:
+        raise HTTPException(status_code=503, detail="GitHub webhook is not configured")
+    if not x_hub_signature_256:
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    digest = hmac.new(
+        secret.encode("utf-8"), await request.body(), hashlib.sha256
+    ).hexdigest()
+    expected = ("sha256=" + digest).encode("ascii")
+    if not hmac.compare_digest(expected, x_hub_signature_256.encode("utf-8")):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+
 class AgentAuth(BaseModel):
     """Agent authentication credentials"""
 

@@ -17,6 +17,7 @@ os.environ["JWT_SECRET"] = "synthetic-jwt-test-key-not-for-deployment"
 for name in (
     "OPENROUTER_API_KEY",
     "SMART_TREE_FIX_WEBHOOK",
+    "GITHUB_WEBHOOK_SECRET",
     "ADMIN_PASSWORD",
     "HUE_PASSWORD",
 ):

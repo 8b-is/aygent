@@ -32,6 +32,7 @@ from auth import (
     rate_limit,
     require_agent_auth,
     verify_agent_key,
+    verify_github_webhook,
 )
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -538,7 +539,7 @@ def get_credits(feedback_id: str):
     }
 
 
-@app.post("/webhook/github")
+@app.post("/webhook/github", dependencies=[Depends(verify_github_webhook)])
 async def github_webhook(payload: dict, x_github_event: str = Header(None)):
     """Handle GitHub webhooks for PR creation/merge"""
     if x_github_event == "pull_request":
