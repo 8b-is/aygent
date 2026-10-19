@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test suite for ST-AYGENT Feedback API
 "Testing with style!" - Trisha from Accounting

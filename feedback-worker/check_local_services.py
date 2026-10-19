@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test script for feedback worker
 """
@@ -38,47 +37,41 @@ async def check_feedback_submission():
         "fix_complexity": "simple",
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            # Submit feedback
-            response = await client.post(
-                f"{API_BASE_URL}/feedback",
-                json=test_feedback,
-                headers={"X-MCP-Client": "ci-test-script"},
-            )
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        # Submit feedback
+        response = await client.post(
+            f"{API_BASE_URL}/feedback",
+            json=test_feedback,
+            headers={"X-MCP-Client": "ci-test-script"},
+        )
 
-            if response.status_code == 200:
-                result = response.json()
-                print("✅ Feedback submitted successfully!")
-                print(f"   ID: {result['feedback_id']}")
-                print(f"   Compression: {result['compression_ratio']:.1f}x")
-                return result["feedback_id"]
-            else:
-                print(f"❌ Failed to submit feedback: {response.status_code}")
-                print(f"   {response.text}")
-                return None
-    except (httpx.ConnectError, httpx.TimeoutException):
-        raise
+        if response.status_code == 200:
+            result = response.json()
+            print("✅ Feedback submitted successfully!")
+            print(f"   ID: {result['feedback_id']}")
+            print(f"   Compression: {result['compression_ratio']:.1f}x")
+            return result["feedback_id"]
+        else:
+            print(f"❌ Failed to submit feedback: {response.status_code}")
+            print(f"   {response.text}")
+            return None
 
 
 async def check_pending_endpoint():
     """Test fetching pending feedback"""
 
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{API_BASE_URL}/feedback/pending?limit=5")
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        response = await client.get(f"{API_BASE_URL}/feedback/pending?limit=5")
 
-            if response.status_code == 200:
-                items = response.json()
-                print(f"\n📋 Found {len(items)} pending feedback items")
-                for item in items:
-                    print(
-                        f"   - [{item['category']}] {item['title']} (impact: {item['impact_score']})"
-                    )
-            else:
-                print(f"❌ Failed to fetch pending: {response.status_code}")
-    except (httpx.ConnectError, httpx.TimeoutException):
-        raise
+        if response.status_code == 200:
+            items = response.json()
+            print(f"\n📋 Found {len(items)} pending feedback items")
+            for item in items:
+                print(
+                    f"   - [{item['category']}] {item['title']} (impact: {item['impact_score']})"
+                )
+        else:
+            print(f"❌ Failed to fetch pending: {response.status_code}")
 
 
 async def check_worker_metrics():

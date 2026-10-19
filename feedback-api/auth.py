@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Authentication and Rate Limiting for Feedback API
 """
@@ -372,16 +371,16 @@ def verify_admin(username: str, password: str) -> bool:
 
 # Export functions for use in main API
 __all__ = [
-    "AgentAuth",
+    "AGENT_KEYS",
     "AdminLogin",
-    "TokenResponse",
-    "verify_agent_key",
-    "create_access_token",
-    "verify_token",
-    "check_permission",
+    "AgentAuth",
     "RateLimiter",
+    "TokenResponse",
+    "check_permission",
+    "create_access_token",
     "rate_limit",
     "require_agent_auth",
     "verify_admin",
-    "AGENT_KEYS",
+    "verify_agent_key",
+    "verify_token",
 ]

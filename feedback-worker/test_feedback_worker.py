@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test suite for ST-AYGENT Feedback Worker
 "Quality assurance with pizzazz!" - Trisha from Accounting
@@ -164,19 +163,21 @@ async def test_worker_redis_connection():
     async def mock_from_url(url):
         return mock_redis_instance
 
-    with patch("worker.redis.from_url", side_effect=mock_from_url) as mock_redis:
-        with patch("worker.Github"):
-            worker = FeedbackWorker()
-            worker.repo = None
+    with (
+        patch("worker.redis.from_url", side_effect=mock_from_url) as mock_redis,
+        patch("worker.Github"),
+    ):
+        worker = FeedbackWorker()
+        worker.repo = None
 
-            # Test connection
-            await worker.connect()
-            assert worker.redis is not None
-            mock_redis.assert_called_once()
+        # Test connection
+        await worker.connect()
+        assert worker.redis is not None
+        mock_redis.assert_called_once()
 
-            # Test disconnection
-            await worker.disconnect()
-            mock_redis_instance.close.assert_called_once()
+        # Test disconnection
+        await worker.disconnect()
+        mock_redis_instance.close.assert_called_once()
 
 
 def test_feedback_formatting():

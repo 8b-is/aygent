@@ -14,6 +14,7 @@ def test_manual_check_refuses_without_opt_in():
         capture_output=True,
         text=True,
         timeout=10,
+        check=False,
     )
     assert result.returncode == 2
     assert "--allow-local-writes is required" in result.stderr

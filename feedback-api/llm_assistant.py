@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 OpenRouter LLM Integration for Smart-Tree Assistance
 Helps with boring/repetitive tasks and provides context
@@ -259,7 +258,7 @@ class SmartTreeAssistant:
             return LLMResponse(
                 task_id=cache_key,
                 model_used="fallback",
-                response=f"Error calling LLM: {str(e)}. Please complete this task manually.",
+                response=f"Error calling LLM: {e!s}. Please complete this task manually.",
                 tokens_used=0,
                 cost_estimate=0.0,
             )
@@ -287,7 +286,7 @@ class SmartTreeAssistant:
                     LLMResponse(
                         task_id=self._get_cache_key(tasks[i], cache_scope),
                         model_used="error",
-                        response=f"Task failed: {str(result)}",
+                        response=f"Task failed: {result!s}",
                         tokens_used=0,
                         cost_estimate=0.0,
                     )
@@ -379,8 +378,8 @@ def get_assistant() -> SmartTreeAssistant:
 
 # Export for use in API
 __all__ = [
-    "SmartTreeTask",
     "LLMResponse",
     "SmartTreeAssistant",
+    "SmartTreeTask",
     "get_assistant",
 ]

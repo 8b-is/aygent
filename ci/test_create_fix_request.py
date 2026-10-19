@@ -108,7 +108,9 @@ class DispatchTests(unittest.TestCase):
                 if args[:3] == ["gh", "pr", "create"]:
                     bodies.append(Path(args[args.index("--body-file") + 1]).read_text())
                     return
-                subprocess.run(args, **kwargs, capture_output=True)
+                subprocess.run(
+                    args, check=kwargs.pop("check"), **kwargs, capture_output=True
+                )
 
             create_request(payload, root, runner)
             self.assertFalse((root / "SHOULD_NOT_EXIST").exists())

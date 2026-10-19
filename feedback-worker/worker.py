@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Smart Tree Feedback Worker
 Mean ass efficient feedback processor that turns user suggestions into GitHub issues
@@ -10,7 +9,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 import aiohttp
 import redis.asyncio as redis
@@ -413,13 +412,12 @@ class FeedbackWorker:
                     "processed": True,
                 }
 
-                if issue_number:
-                    # Trigger AI fix dispatch for high-impact issues
-                    if await self.trigger_ai_fix_dispatch(feedback, issue_number):
-                        result["ai_fix_triggered"] = True
-                        logger.info(
-                            f"AI fix workflow triggered for issue #{issue_number}"
-                        )
+                # Trigger AI fix dispatch for high-impact issues
+                if issue_number and await self.trigger_ai_fix_dispatch(
+                    feedback, issue_number
+                ):
+                    result["ai_fix_triggered"] = True
+                    logger.info(f"AI fix workflow triggered for issue #{issue_number}")
 
                 if issue_number:
                     # Mark as processed in API
@@ -428,7 +426,7 @@ class FeedbackWorker:
                         json={
                             "github_issue": issue_number,
                             "category": category,
-                            "processed_at": datetime.utcnow().isoformat(),
+                            "processed_at": datetime.now(UTC).isoformat(),
                         },
                     ) as resp:
                         if resp.status != 200:
@@ -467,6 +465,12 @@ class FeedbackWorker:
         await self.setup()
 
         try:
+            semaphore = asyncio.Semaphore(3)
+
+            async def process_with_limit(item):
+                async with semaphore:
+                    await self.process_feedback(item)
+
             while True:
                 # Check for retry items first
                 retry_item = await self.redis.rpop("feedback:retry")
@@ -482,12 +486,6 @@ class FeedbackWorker:
                     logger.info(f"Processing {len(feedback_items)} feedback items")
 
                     # Process concurrently but with limit
-                    semaphore = asyncio.Semaphore(3)
-
-                    async def process_with_limit(item):
-                        async with semaphore:
-                            await self.process_feedback(item)
-
                     await asyncio.gather(
                         *[process_with_limit(item) for item in feedback_items]
                     )

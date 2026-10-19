@@ -41,13 +41,13 @@ def create_request(payload, workspace, runner=subprocess.run):
         raise ValueError("Fix directory must not be a symlink")
     directory.mkdir(exist_ok=True)
     relative = f".ai-fixes/{feedback}.json"
-    record = dict(
-        feedback_id=feedback,
-        branch=branch,
-        status="pending",
-        created_at=datetime.now(UTC).isoformat(),
-        assigned_to="next-available-ai",
-    )
+    record = {
+        "feedback_id": feedback,
+        "branch": branch,
+        "status": "pending",
+        "created_at": datetime.now(UTC).isoformat(),
+        "assigned_to": "next-available-ai",
+    }
     # Exclusive creation also refuses an existing file or symlink.
     with (workspace / relative).open("x") as handle:
         json.dump(record, handle, indent=2)

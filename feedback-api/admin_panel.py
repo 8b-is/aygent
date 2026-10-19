@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Admin Panel for Smart-Tree Feedback System
 Beautiful web interface for managing feedback, agents, and monitoring

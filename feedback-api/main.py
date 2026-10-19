@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Smart Tree Feedback API - The Taco Bell of Directory Tools!
 Collects enhancement requests from AI assistants using smart-tree MCP.
@@ -405,9 +404,7 @@ async def submit_feedback(
         )
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to save feedback: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to save feedback: {e!s}")
 
 
 @app.get("/feedback/stats")
@@ -1442,9 +1439,12 @@ def get_announcements(ai_model: str | None = None, priority: str | None = None):
             continue
 
         # Filter by target AI model
-        if ai_model and "all" not in announcement.targets:
-            if ai_model not in announcement.targets:
-                continue
+        if (
+            ai_model
+            and "all" not in announcement.targets
+            and ai_model not in announcement.targets
+        ):
+            continue
 
         active_announcements.append(announcement.model_dump())
 
