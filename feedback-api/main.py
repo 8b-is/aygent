@@ -403,8 +403,9 @@ async def submit_feedback(
             compression_ratio=round(compression_ratio, 2),
         )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save feedback: {e!s}")
+    except (OSError, zlib.error) as e:
+        logger.error("Feedback storage failed (%s)", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to save feedback") from e
 
 
 @app.get("/feedback/stats")
@@ -572,9 +573,13 @@ def get_credits(feedback_id: str):
     # Parse summary for model info
     with open(summary_file, "r") as f:
         content = f.read()
-        model_line = [
-            line for line in content.split("\n") if line.startswith("Model:")
-        ][0]
+        model_line = next(
+            (line for line in content.split("\n") if line.startswith("Model:")), None
+        )
+        if model_line is None:
+            raise HTTPException(
+                status_code=500, detail="Feedback summary has no model attribution"
+            )
         reporter_model = model_line.split(":", 1)[1].strip()
 
     return {
@@ -953,6 +958,10 @@ def get_requested_tools():
     }
 
 
+class ReleaseMetadataError(ValueError):
+    """The release service returned an unsupported response shape."""
+
+
 # Cache for 5 minutes (300 seconds)
 @lru_cache(maxsize=1)
 def get_cached_version(cache_key: int):
@@ -968,6 +977,11 @@ def get_cached_version(cache_key: int):
         )
         if response.status_code == 200:
             release = response.json()
+            if not isinstance(release, dict) or any(
+                not isinstance(release.get(field, ""), str)
+                for field in ("tag_name", "body", "published_at")
+            ):
+                raise ReleaseMetadataError("Invalid release metadata")
             version = release.get("tag_name", "").lstrip("v")
 
             # Parse release notes for features and AI benefits
@@ -1032,7 +1046,7 @@ def get_cached_version(cache_key: int):
                     ]
                 ),
             }
-    except Exception as e:
+    except (requests.RequestException, ReleaseMetadataError) as e:
         logger.error(f"Failed to fetch GitHub release: {e}")
 
     # Fallback to default values
