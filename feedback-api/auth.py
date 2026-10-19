@@ -59,7 +59,7 @@ AGENT_KEYS = {
 # Redis client for rate limiting
 try:
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-except:
+except (ValueError, redis.exceptions.RedisError):
     redis_client = None  # Fallback to in-memory if Redis not available
 
 # In-memory rate limiter fallback

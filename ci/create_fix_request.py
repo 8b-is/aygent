@@ -11,7 +11,7 @@ from pathlib import Path
 
 def validate(payload):
     if not isinstance(payload, dict):
-        raise ValueError("client_payload must be an object")
+        raise TypeError("client_payload must be an object")
     feedback = payload.get("feedback_id")
     branch = payload.get("branch_name")
     title = payload.get("title")

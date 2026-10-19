@@ -42,7 +42,8 @@ class DispatchTests(unittest.TestCase):
                 else:
                     payload = case
                 runner = Mock()
-                with self.assertRaises(ValueError):
+                expected = ValueError if isinstance(payload, dict) else TypeError
+                with self.assertRaises(expected):
                     create_request(payload, temp, runner)
                 runner.assert_not_called()
                 self.assertEqual(list(Path(temp).iterdir()), [])

@@ -356,7 +356,7 @@ async def health_check():
     try:
         feedback_count = sum(1 for _ in FEEDBACK_DIR.glob("**/*.stfb"))
         health_status["feedback_count"] = feedback_count
-    except Exception:
+    except OSError:
         health_status["status"] = "degraded"
 
     return health_status
@@ -703,7 +703,7 @@ def get_leaderboard():
                             model_stats[model]["total_impact"] += impact
                             if category:
                                 model_stats[model]["categories"][category] += 1
-                except Exception as e:
+                except (OSError, UnicodeError) as e:
                     logger.error(f"Error reading {summary_file}: {e}")
 
     # Sort by number of issues found
@@ -892,7 +892,7 @@ def get_pending_feedback(limit: int = 10, offset: int = 0):
                     if len(pending_items) >= offset + limit:
                         return pending_items[offset : offset + limit]
 
-            except Exception as e:
+            except (OSError, UnicodeError, zlib.error, json.JSONDecodeError) as e:
                 print(f"Error reading feedback file {feedback_file}: {e}")
                 continue
 
