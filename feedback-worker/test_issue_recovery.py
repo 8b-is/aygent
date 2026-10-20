@@ -141,3 +141,26 @@ async def test_retry_queue_failure_is_not_reported_as_success(worker, feedback):
         await worker.process_feedback(feedback)
     worker.repo.create_issue.assert_called_once()
     worker.redis.lpush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 404, 429, 500, 503])
+async def test_failed_marker_is_not_reported_as_processed(worker, feedback, status):
+    worker.session.post.return_value.__aenter__.return_value.status = status
+    before = module.feedback_processed._value.get()
+    result = await worker.process_feedback(feedback)
+    assert result["processed"] is False
+    assert result["issue_number"] == 42
+    assert module.feedback_processed._value.get() == before
+    worker.redis.lpush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_repository_is_not_reported_as_processed(worker, feedback):
+    worker.repo = None
+    before = module.feedback_processed._value.get()
+    result = await worker.process_feedback(feedback)
+    assert result["processed"] is False
+    assert result["issue_number"] is None
+    assert module.feedback_processed._value.get() == before
+    worker.session.post.assert_not_called()

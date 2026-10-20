@@ -396,8 +396,10 @@ class FeedbackWorker:
                     "id": feedback.get("id"),
                     "category": category,
                     "issue_number": issue_number,
-                    "processed": True,
+                    "processed": False,
                 }
+                if issue_number is None:
+                    return result
 
                 # Trigger AI fix dispatch for high-impact issues
                 if issue_number and await self.trigger_ai_fix_dispatch(
@@ -420,7 +422,10 @@ class FeedbackWorker:
                             logger.error(
                                 f"Failed to mark feedback as processed: {resp.status}"
                             )
+                            feedback_errors.inc()
+                            return result
 
+                result["processed"] = True
                 feedback_processed.inc()
                 return result
 
