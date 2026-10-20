@@ -16,3 +16,10 @@ Run `python -m unittest discover -s ci -p 'test_*.py' -v` from the repository ro
 The integration test uses a temporary real Git repository and intercepts push/PR
 commands; it never contacts GitHub. Hosted workflow checks and container builds
 are separate acceptance gates, not results established by these local tests.
+
+`container_smoke.sh API_IMAGE WORKER_IMAGE` probes API health on container
+loopback with networking disabled, imports the worker as its non-root user, and
+checks a journal claim survives replacement of the container using a named volume.
+It does not test the full Redis/GitHub processing loop. The runner applies a
+90-second timeout; its temporary container and volume are removed on exit.
+Image publication also requires this smoke job to pass.

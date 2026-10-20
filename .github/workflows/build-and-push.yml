@@ -37,9 +37,24 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
 
+  container-smoke:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build native smoke images
+        run: |
+          docker build -t aygent-smoke-api ./feedback-api
+          docker build -t aygent-smoke-worker ./feedback-worker
+      - name: Probe isolated runtime and persistent state
+        run: timeout 90 bash ci/container_smoke.sh aygent-smoke-api aygent-smoke-worker
+
   publish-images:
     if: github.event_name == 'push'
-    needs: validate
+    needs: [validate, container-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: read
