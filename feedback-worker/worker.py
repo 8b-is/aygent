@@ -1,24 +1,25 @@
-#!/usr/bin/env python3
 """
 Smart Tree Feedback Worker
 Mean ass efficient feedback processor that turns user suggestions into GitHub issues
 """
 
 import asyncio
+import hashlib
 import json
+import logging
 import os
 import re
-from datetime import datetime
-from typing import Dict, List, Optional
-import hashlib
+from datetime import UTC, datetime
+from pathlib import Path
 
 import aiohttp
 import redis.asyncio as redis
-from github import Github, GithubException
 import uvloop
+from dispatch_journal import DispatchJournal
+from github import Github, GithubException
 from prometheus_client import Counter, Histogram, start_http_server
-import logging
-import requests
+from redis.exceptions import RedisError
+from requests import RequestException
 
 # Metrics
 feedback_processed = Counter(
@@ -53,6 +54,10 @@ class FeedbackWorker:
         self.redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
         self.github_repo = os.environ.get("GITHUB_REPO", "8b-is/aygent")
 
+        self.dispatch_journal = DispatchJournal(
+            Path(os.environ.get("DISPATCH_JOURNAL_PATH", "/app/state/dispatch.sqlite"))
+        )
+
         # Initialize GitHub client (optional for local testing)
         self.gh = None
         self.repo = None
@@ -62,7 +67,7 @@ class FeedbackWorker:
                 self.gh = Github(self.github_token)
                 self.repo = self.gh.get_repo(self.github_repo)
                 print(f"✅ Connected to GitHub repo: {self.github_repo}")
-            except Exception as e:
+            except (GithubException, RequestException) as e:
                 print(f"⚠️ GitHub connection failed: {e}")
                 print("Running in local mode without GitHub integration")
         else:
@@ -150,7 +155,7 @@ class FeedbackWorker:
             await self.session.close()
         await self.disconnect()
 
-    def prioritize_feedback(self, feedback: Dict) -> str:
+    def prioritize_feedback(self, feedback: dict) -> str:
         """Prioritize feedback based on impact and frequency scores"""
         impact = feedback.get("impact_score", 0)
         frequency = feedback.get("frequency_score", 0)
@@ -172,7 +177,7 @@ class FeedbackWorker:
         else:
             return "low"
 
-    def categorize_feedback(self, feedback: Dict) -> str:
+    def categorize_feedback(self, feedback: dict) -> str:
         """Categorize feedback as bug, feature, or teleportation goal"""
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
 
@@ -206,7 +211,7 @@ class FeedbackWorker:
         # Default to enhancement
         return "enhancement"
 
-    def generate_fingerprint(self, feedback: Dict) -> str:
+    def generate_fingerprint(self, feedback: dict) -> str:
         """Generate fingerprint for duplicate detection"""
         # Normalize text
         text = f"{feedback.get('title', '')} {feedback.get('description', '')}".lower()
@@ -223,7 +228,16 @@ class FeedbackWorker:
         fingerprint_text = " ".join(sorted(important_words[:10]))
         return hashlib.sha256(fingerprint_text.encode()).hexdigest()[:16]
 
-    async def check_duplicate(self, feedback: Dict) -> Optional[int]:
+    async def cache_issue(self, fingerprint: str, issue_number: int) -> None:
+        """Cache a confirmed issue without turning a cache outage into no match."""
+        try:
+            await self.redis.setex(
+                f"feedback:fingerprint:{fingerprint}", 86400, str(issue_number)
+            )
+        except RedisError:
+            logger.warning("Could not cache confirmed issue #%s", issue_number)
+
+    async def check_duplicate(self, feedback: dict) -> int | None:
         """Check if feedback is duplicate, return issue number if found"""
         fingerprint = self.generate_fingerprint(feedback)
 
@@ -233,59 +247,47 @@ class FeedbackWorker:
             duplicate_detected.inc()
             return int(cached_issue)
 
-        # Search GitHub issues
-        try:
-            # Search by title similarity
-            search_query = feedback.get("title", "").split()[:5]
-            search_query = " ".join(search_query)
+        # A failed lookup must propagate; it is not evidence of no duplicate.
+        issues = self.repo.get_issues(state="all")
+        for issue in issues:
+            if issue.pull_request:
+                continue
 
-            issues = self.repo.get_issues(state="all")
-            for issue in issues:
-                if issue.pull_request:
-                    continue
+            # Check title similarity
+            issue_fingerprint = self.generate_fingerprint(
+                {"title": issue.title, "description": issue.body or ""}
+            )
 
-                # Check title similarity
-                issue_fingerprint = self.generate_fingerprint(
-                    {"title": issue.title, "description": issue.body or ""}
-                )
-
-                if issue_fingerprint == fingerprint:
-                    # Cache the match
-                    await self.redis.setex(
-                        f"feedback:fingerprint:{fingerprint}",
-                        86400,  # 24 hours
-                        str(issue.number),
-                    )
-                    duplicate_detected.inc()
-                    return issue.number
-
-        except Exception as e:
-            logger.error(f"Error checking duplicates: {e}")
+            if issue_fingerprint == fingerprint:
+                # Cache the match
+                await self.cache_issue(fingerprint, issue.number)
+                duplicate_detected.inc()
+                return issue.number
 
         return None
 
-    async def trigger_ai_fix_dispatch(self, feedback: Dict, issue_number: int) -> bool:
+    async def trigger_ai_fix_dispatch(self, feedback: dict, issue_number: int) -> bool:
         """Trigger GitHub Actions workflow for AI to implement fix"""
-        if not self.gh or not self.repo:
+        if not self.gh or not self.repo or self.session is None:
             return False
-        
+
         try:
             # Only trigger for high-impact bugs and critical issues
             if feedback.get("category") not in ["bug", "critical"]:
                 return False
-            
+
             if feedback.get("impact_score", 0) < 7:
                 return False
-            
+
             # Generate branch name
             branch_name = f"ai-fix-{feedback.get('id', 'unknown')[:8]}"
-            
+
             # Trigger repository dispatch event
             headers = {
                 "Authorization": f"token {self.github_token}",
-                "Accept": "application/vnd.github.v3+json"
+                "Accept": "application/vnd.github.v3+json",
             }
-            
+
             payload = {
                 "event_type": "ai_fix_dispatch",
                 "client_payload": {
@@ -296,47 +298,62 @@ class FeedbackWorker:
                     "title": feedback.get("title"),
                     "description": feedback.get("description"),
                     "proposed_solution": feedback.get("proposed_solution", ""),
-                    "ai_model": feedback.get("ai_model", "unknown")
-                }
+                    "ai_model": feedback.get("ai_model", "unknown"),
+                },
             }
-            
-            response = requests.post(
+
+            if not await asyncio.to_thread(
+                self.dispatch_journal.claim, self.github_repo, feedback.get("id")
+            ):
+                return False
+
+            async with self.session.post(
                 f"https://api.github.com/repos/{self.github_repo}/dispatches",
                 headers=headers,
-                json=payload
-            )
-            
-            if response.status_code == 204:
-                logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
-                return True
-            else:
-                logger.error(f"Failed to trigger dispatch: {response.status_code}")
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as response:
+                await asyncio.to_thread(
+                    self.dispatch_journal.finish,
+                    self.github_repo,
+                    feedback["id"],
+                    "accepted" if response.status == 204 else "rejected",
+                )
+                if response.status == 204:
+                    logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
+                    return True
+                logger.error(f"Failed to trigger dispatch: {response.status}")
                 return False
-                
-        except Exception as e:
+
+        except (aiohttp.ClientError, TimeoutError) as e:
+            await asyncio.to_thread(
+                self.dispatch_journal.finish,
+                self.github_repo,
+                feedback["id"],
+                "unknown",
+            )
             logger.error(f"Error triggering AI fix dispatch: {e}")
             return False
 
-    async def create_github_issue(self, feedback: Dict, category: str) -> Optional[int]:
+    async def create_github_issue(self, feedback: dict, category: str) -> int | None:
         """Create GitHub issue from feedback"""
         if not self.repo:
             logger.warning("GitHub repo not configured - skipping issue creation")
             return None
 
-        try:
-            # Check for duplicates
-            duplicate_issue = await self.check_duplicate(feedback)
-            if duplicate_issue:
-                logger.info(f"Duplicate detected: #{duplicate_issue}")
-                return duplicate_issue
+        # Check for duplicates
+        duplicate_issue = await self.check_duplicate(feedback)
+        if duplicate_issue:
+            logger.info(f"Duplicate detected: #{duplicate_issue}")
+            return duplicate_issue
 
-            # Prepare labels
-            labels = [category, "feedback", "from-ai"]
-            if feedback.get("impact_score", 0) >= 8:
-                labels.append("high-priority")
+        # Prepare labels
+        labels = [category, "feedback", "from-ai"]
+        if feedback.get("impact_score", 0) >= 8:
+            labels.append("high-priority")
 
-            # Create issue body
-            body = f"""## Feedback from {feedback.get('mcp_tool', 'Smart Tree User')}
+        # Create issue body
+        body = f"""## Feedback from {feedback.get('mcp_tool', 'Smart Tree User')}
 
 {feedback.get('description', '')}
 
@@ -349,54 +366,43 @@ class FeedbackWorker:
 ### Examples
 """
 
-            # Add examples if provided
-            examples = feedback.get("examples", [])
-            if examples:
-                for example in examples:
-                    body += f"\n#### {example.get('description', 'Example')}\n"
-                    body += f"```\n{example.get('code', '')}\n```\n"
-                    if example.get("expected_output"):
-                        body += f"Expected output:\n```\n{example['expected_output']}\n```\n"
-            else:
-                body += "\nNo examples provided.\n"
+        # Add examples if provided
+        examples = feedback.get("examples", [])
+        if examples:
+            for example in examples:
+                body += f"\n#### {example.get('description', 'Example')}\n"
+                body += f"```\n{example.get('code', '')}\n```\n"
+                if example.get("expected_output"):
+                    body += (
+                        f"Expected output:\n```\n{example['expected_output']}\n```\n"
+                    )
+        else:
+            body += "\nNo examples provided.\n"
 
-            # Add proposed solution if available
-            if feedback.get("proposed_solution"):
-                body += f"\n### Proposed Solution\n{feedback['proposed_solution']}\n"
+        # Add proposed solution if available
+        if feedback.get("proposed_solution"):
+            body += f"\n### Proposed Solution\n{feedback['proposed_solution']}\n"
 
-            # Add metadata
-            body += f"\n---\n*Automatically created by {self.github_email}*\n*ST-AYGENT Feedback System*"
+        # Add metadata
+        body += f"\n---\n*Automatically created by {self.github_email}*\n*ST-AYGENT Feedback System*"
 
-            # Create the issue
-            issue = self.repo.create_issue(
-                title=feedback.get("title", "Untitled Feedback"),
-                body=body,
-                labels=labels,
-            )
+        # Create the issue
+        issue = self.repo.create_issue(
+            title=feedback.get("title", "Untitled Feedback"),
+            body=body,
+            labels=labels,
+        )
 
-            github_issues_created.inc()
-            logger.info(f"Created issue #{issue.number}: {issue.title}")
+        github_issues_created.inc()
+        logger.info(f"Created issue #{issue.number}: {issue.title}")
 
-            # Cache the fingerprint
-            fingerprint = self.generate_fingerprint(feedback)
-            await self.redis.setex(
-                f"feedback:fingerprint:{fingerprint}",
-                86400,  # 24 hours
-                str(issue.number),
-            )
+        # Cache the fingerprint
+        fingerprint = self.generate_fingerprint(feedback)
+        await self.cache_issue(fingerprint, issue.number)
 
-            return issue.number
+        return issue.number
 
-        except GithubException as e:
-            logger.error(f"GitHub API error: {e}")
-            feedback_errors.inc()
-            return None
-        except Exception as e:
-            logger.error(f"Error creating issue: {e}")
-            feedback_errors.inc()
-            return None
-
-    async def process_feedback(self, feedback: Dict) -> Optional[Dict]:
+    async def process_feedback(self, feedback: dict) -> dict | None:
         """Process a single feedback item"""
         with processing_time.time():
             try:
@@ -413,14 +419,17 @@ class FeedbackWorker:
                     "id": feedback.get("id"),
                     "category": category,
                     "issue_number": issue_number,
-                    "processed": True,
+                    "processed": False,
                 }
+                if issue_number is None:
+                    return result
 
-                if issue_number:
-                    # Trigger AI fix dispatch for high-impact issues
-                    if await self.trigger_ai_fix_dispatch(feedback, issue_number):
-                        result["ai_fix_triggered"] = True
-                        logger.info(f"AI fix workflow triggered for issue #{issue_number}")
+                # Trigger AI fix dispatch for high-impact issues
+                if issue_number and await self.trigger_ai_fix_dispatch(
+                    feedback, issue_number
+                ):
+                    result["ai_fix_triggered"] = True
+                    logger.info(f"AI fix workflow triggered for issue #{issue_number}")
 
                 if issue_number:
                     # Mark as processed in API
@@ -429,18 +438,27 @@ class FeedbackWorker:
                         json={
                             "github_issue": issue_number,
                             "category": category,
-                            "processed_at": datetime.utcnow().isoformat(),
+                            "processed_at": datetime.now(UTC).isoformat(),
                         },
                     ) as resp:
                         if resp.status != 200:
                             logger.error(
                                 f"Failed to mark feedback as processed: {resp.status}"
                             )
+                            feedback_errors.inc()
+                            return result
 
+                result["processed"] = True
                 feedback_processed.inc()
                 return result
 
-            except Exception as e:
+            except (
+                GithubException,
+                RequestException,
+                RedisError,
+                aiohttp.ClientError,
+                TimeoutError,
+            ) as e:
                 logger.error(f"Error processing feedback: {e}")
                 feedback_errors.inc()
 
@@ -448,18 +466,32 @@ class FeedbackWorker:
                 await self.redis.lpush("feedback:retry", json.dumps(feedback))
                 return None
 
-    async def fetch_pending_feedback(self) -> List[Dict]:
+    async def fetch_pending_feedback(self) -> list[dict]:
         """Fetch pending feedback from API"""
         try:
             async with self.session.get(
-                f"{self.feedback_api_url}/feedback/pending"
+                f"{self.feedback_api_url}/feedback/pending",
+                timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status == 200:
-                    return await resp.json()
+                    items = await resp.json()
+                    if not isinstance(items, list) or any(
+                        not isinstance(item, dict) for item in items
+                    ):
+                        logger.error(
+                            "Pending feedback response must be a list of objects"
+                        )
+                        return []
+                    return items
                 else:
                     logger.error(f"Failed to fetch feedback: {resp.status}")
                     return []
-        except Exception as e:
+        except (
+            aiohttp.ClientError,
+            TimeoutError,
+            json.JSONDecodeError,
+            UnicodeError,
+        ) as e:
             logger.error(f"Error fetching feedback: {e}")
             return []
 
@@ -468,27 +500,32 @@ class FeedbackWorker:
         await self.setup()
 
         try:
+            semaphore = asyncio.Semaphore(3)
+
+            async def process_with_limit(item):
+                async with semaphore:
+                    await self.process_feedback(item)
+
             while True:
                 # Check for retry items first
                 retry_item = await self.redis.rpop("feedback:retry")
+                retry_id = None
                 if retry_item:
                     feedback = json.loads(retry_item)
+                    retry_id = feedback.get("id")
                     await self.process_feedback(feedback)
-                    continue
 
                 # Fetch new feedback
                 feedback_items = await self.fetch_pending_feedback()
+                if retry_id is not None:
+                    feedback_items = [
+                        item for item in feedback_items if item.get("id") != retry_id
+                    ]
 
                 if feedback_items:
                     logger.info(f"Processing {len(feedback_items)} feedback items")
 
                     # Process concurrently but with limit
-                    semaphore = asyncio.Semaphore(3)
-
-                    async def process_with_limit(item):
-                        async with semaphore:
-                            await self.process_feedback(item)
-
                     await asyncio.gather(
                         *[process_with_limit(item) for item in feedback_items]
                     )

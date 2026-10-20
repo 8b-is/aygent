@@ -39,6 +39,22 @@ The service is deployed at `https://api.8b.is/smart-tree/feedback` on port 8420.
 
 ## API Endpoints
 
+### Announcement expiration
+Announcement `expires_at` values without a timezone are interpreted as UTC,
+including records already on disk. Explicit timezone offsets retain their meaning;
+`null` means no expiration. New timezone-less values are saved with an explicit
+UTC offset. Reading legacy records does not rewrite their files. An announcement
+is filtered out when its expiration is earlier than the current time.
+
+### GET /auth/keys
+This credential-listing helper is disabled unless `ENV` is explicitly set to
+exactly `development`. Even then it requires a valid bearer JWT with the `*`
+permission, because its response contains every active agent key, including the
+administrator key. `admin.read` and `admin.write` alone do not grant this access.
+Use it only in a trusted local development environment. Unset, empty and other
+environment values keep it disabled; the supplied Compose files do not enable it.
+Production clients should obtain their own configured credential from the operator.
+
 ### POST /feedback
 Submit feedback from an AI assistant.
 
@@ -67,7 +83,18 @@ Example request:
 ### POST /feedback/{feedback_id}/dispatch-fix
 Dispatch an AI to automatically fix the reported issue.
 
-This creates a new branch and can trigger AI assistants to implement the fix.
+This records one request and, when configured, sends it to the outbound webhook.
+New requests use the full feedback ID in the proposed branch name. A successful
+HTTP response from that webhook means it accepted the request, not that a branch
+or implementation has been verified.
+
+Repeated requests return the stored record without resetting PR state or sending
+another webhook. `delivery_status` distinguishes `not_configured`, `attempting`,
+`accepted`, `rejected` and `unknown`. A non-2xx reply or transport error returns
+HTTP 502 while retaining the request. Cancellation or a process interruption may
+leave `attempting`; reconcile the remote outcome before arranging a retry.
+Automatic retries are deliberately unavailable. Storage locking currently assumes
+the supplied single-worker API entrypoint.
 
 ### GET /feedback/{feedback_id}/credits
 Get credit attribution for who reported and fixed an issue.
@@ -80,6 +107,18 @@ View the AI contribution leaderboard - see which AIs have found the most issues 
 
 ### POST /webhook/github
 GitHub webhook endpoint for tracking PR creation and merges.
+
+Requires the configured `GITHUB_WEBHOOK_SECRET` and a valid
+`X-Hub-Signature-256` header. The handler accepts matching PRs whose source,
+target and delivery repository are `8b-is/smart-tree`. It matches the complete
+stored branch name, including legacy short branches, and returns 409 when that
+branch is ambiguous or already bound to another PR. Worker `ai-fix-*` branches
+are a separate workflow and are ignored here.
+
+Opened events record `in_progress`; merged closed events record `completed`.
+Duplicate events do not rewrite state, and delayed opens cannot regress a
+completed or failed record. These states track PR events, not independent code
+validation. Credit attribution is not persisted by this handler.
 
 ### GET /health
 Health check endpoint.
