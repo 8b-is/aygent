@@ -69,6 +69,8 @@ services:
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       BATCH_SIZE: ${BATCH_SIZE:-10}
       PROMETHEUS_PORT: 9090
+    volumes:
+      - worker-state:/app/state
     networks:
       - feedback-net
     depends_on:
@@ -82,6 +84,7 @@ networks:
     driver: bridge
 
 volumes:
+  worker-state:
   postgres_data:
   redis_data:
   feedback_data:
