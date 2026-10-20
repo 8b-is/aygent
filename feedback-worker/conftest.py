@@ -23,3 +23,8 @@ def deny_network(monkeypatch):
     yield
     # Catch attempts even when production error handling swallowed the exception.
     assert not attempts, "A unit test attempted a network connection"
+
+
+@pytest.fixture(autouse=True)
+def isolated_dispatch_journal(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISPATCH_JOURNAL_PATH", str(tmp_path / "dispatch.sqlite"))

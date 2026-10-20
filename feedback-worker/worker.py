@@ -10,10 +10,12 @@ import logging
 import os
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import aiohttp
 import redis.asyncio as redis
 import uvloop
+from dispatch_journal import DispatchJournal
 from github import Github, GithubException
 from prometheus_client import Counter, Histogram, start_http_server
 from redis.exceptions import RedisError
@@ -51,6 +53,10 @@ class FeedbackWorker:
         )
         self.redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
         self.github_repo = os.environ.get("GITHUB_REPO", "8b-is/aygent")
+
+        self.dispatch_journal = DispatchJournal(
+            Path(os.environ.get("DISPATCH_JOURNAL_PATH", "/app/state/dispatch.sqlite"))
+        )
 
         # Initialize GitHub client (optional for local testing)
         self.gh = None
@@ -296,12 +302,23 @@ class FeedbackWorker:
                 },
             }
 
+            if not await asyncio.to_thread(
+                self.dispatch_journal.claim, self.github_repo, feedback.get("id")
+            ):
+                return False
+
             async with self.session.post(
                 f"https://api.github.com/repos/{self.github_repo}/dispatches",
                 headers=headers,
                 json=payload,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
+                await asyncio.to_thread(
+                    self.dispatch_journal.finish,
+                    self.github_repo,
+                    feedback["id"],
+                    "accepted" if response.status == 204 else "rejected",
+                )
                 if response.status == 204:
                     logger.info(f"Triggered AI fix dispatch for issue #{issue_number}")
                     return True
@@ -309,6 +326,12 @@ class FeedbackWorker:
                 return False
 
         except (aiohttp.ClientError, TimeoutError) as e:
+            await asyncio.to_thread(
+                self.dispatch_journal.finish,
+                self.github_repo,
+                feedback["id"],
+                "unknown",
+            )
             logger.error(f"Error triggering AI fix dispatch: {e}")
             return False
 

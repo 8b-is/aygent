@@ -11,7 +11,8 @@ from worker import FeedbackWorker
 
 
 @pytest.fixture
-def dispatcher(monkeypatch):
+def dispatcher(monkeypatch, tmp_path):
+    monkeypatch.setenv("DISPATCH_JOURNAL_PATH", str(tmp_path / "dispatch.sqlite"))
     monkeypatch.setenv("GITHUB_TOKEN", "fake_token_for_testing")
     monkeypatch.setenv("GITHUB_REPO", "test/repo")
     worker = FeedbackWorker()
@@ -136,3 +137,48 @@ async def test_dispatch_cancellation_releases_transport(dispatcher, feedback):
 async def test_dispatch_without_session_is_disabled(dispatcher, feedback):
     assert dispatcher.session is None
     assert await dispatcher.trigger_ai_fix_dispatch(feedback, 42) is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [204, 403, 500])
+async def test_dispatch_attempt_is_not_replayed(dispatcher, feedback, status):
+    @asynccontextmanager
+    async def response():
+        yield SimpleNamespace(status=status)
+
+    post = Mock(side_effect=lambda *args, **kwargs: response())
+    dispatcher.session = SimpleNamespace(post=post)
+    await dispatcher.trigger_ai_fix_dispatch(feedback, 42)
+    assert await dispatcher.trigger_ai_fix_dispatch(feedback, 42) is False
+    assert post.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [TimeoutError, asyncio.CancelledError])
+async def test_uncertain_dispatch_is_not_replayed(dispatcher, feedback, error):
+    @asynccontextmanager
+    async def response():
+        raise error()
+        yield  # pragma: no cover
+
+    post = Mock(side_effect=lambda *args, **kwargs: response())
+    dispatcher.session = SimpleNamespace(post=post)
+    if error is asyncio.CancelledError:
+        with pytest.raises(asyncio.CancelledError):
+            await dispatcher.trigger_ai_fix_dispatch(feedback, 42)
+    else:
+        assert await dispatcher.trigger_ai_fix_dispatch(feedback, 42) is False
+    assert await dispatcher.trigger_ai_fix_dispatch(feedback, 42) is False
+    assert post.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_unwritable_journal_blocks_http(dispatcher, feedback, tmp_path):
+    import sqlite3
+
+    dispatcher.dispatch_journal.path = tmp_path / "missing" / "journal.sqlite"
+    post = Mock()
+    dispatcher.session = SimpleNamespace(post=post)
+    with pytest.raises(sqlite3.OperationalError):
+        await dispatcher.trigger_ai_fix_dispatch(feedback, 42)
+    post.assert_not_called()

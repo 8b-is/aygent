@@ -114,6 +114,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PROMETHEUS_PORT=9092
     volumes:
+      - worker-state:/app/state
       - ./logs/worker:/app/logs
       - ./feedback-worker/worker.py:/app/worker.py:ro  # Hot reload for dev
     ports:
@@ -262,6 +263,7 @@ services:
 # Volumes 📦
 # ===========================================
 volumes:
+  worker-state:
   postgres-data:
     driver: local
   redis-data:
