@@ -78,3 +78,32 @@ async def test_successive_batches_keep_limit_and_cleanup(worker, monkeypatch):
     worker.setup.assert_awaited_once()
     worker.teardown.assert_awaited_once()
     assert worker.fetch_pending_feedback.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_is_paced_and_does_not_starve_fresh_work(worker, monkeypatch):
+    worker.setup = AsyncMock()
+    worker.teardown = AsyncMock()
+    worker.redis.rpop.return_value = '{"id": "retry"}'
+    worker.fetch_pending_feedback = AsyncMock(
+        return_value=[{"id": "retry"}, {"id": "fresh"}]
+    )
+    processed = []
+
+    async def process(item):
+        processed.append(item["id"])
+        if len(processed) > 3:
+            raise AssertionError("retry loop did not yield")
+
+    async def pause(seconds):
+        assert seconds == 30
+        raise asyncio.CancelledError
+
+    worker.process_feedback = process
+    monkeypatch.setattr(module.asyncio, "sleep", pause)
+    with pytest.raises(asyncio.CancelledError):
+        await worker.run()
+    assert processed == ["retry", "fresh"]
+    worker.redis.rpop.assert_awaited_once()
+    worker.fetch_pending_feedback.assert_awaited_once()
+    worker.teardown.assert_awaited_once()

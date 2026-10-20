@@ -481,13 +481,18 @@ class FeedbackWorker:
             while True:
                 # Check for retry items first
                 retry_item = await self.redis.rpop("feedback:retry")
+                retry_id = None
                 if retry_item:
                     feedback = json.loads(retry_item)
+                    retry_id = feedback.get("id")
                     await self.process_feedback(feedback)
-                    continue
 
                 # Fetch new feedback
                 feedback_items = await self.fetch_pending_feedback()
+                if retry_id is not None:
+                    feedback_items = [
+                        item for item in feedback_items if item.get("id") != retry_id
+                    ]
 
                 if feedback_items:
                     logger.info(f"Processing {len(feedback_items)} feedback items")
