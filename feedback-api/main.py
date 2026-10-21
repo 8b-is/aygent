@@ -1078,7 +1078,7 @@ async def get_latest_version():
     """Get latest Smart Tree version info (cached for 5 minutes)"""
     # Use current 5-minute window as cache key for 5-minute caching
     cache_key = int(time.time() // 300)
-    return get_cached_version(cache_key)
+    return await run_in_threadpool(get_cached_version, cache_key)
 
 
 @app.get("/install", response_class=PlainTextResponse)
