@@ -1,8 +1,11 @@
 """Offline regressions for submission, release lookup and credit failures."""
 
+import asyncio
 import zlib
+from threading import Event
 from unittest.mock import Mock
 
+import httpx
 import main
 import pytest
 import requests
@@ -14,6 +17,39 @@ def clear_release_cache():
     main.get_cached_version.cache_clear()
     yield
     main.get_cached_version.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_release_lookup_keeps_health_responsive(monkeypatch):
+    entered = Event()
+    release = Event()
+    finished = Event()
+
+    def stalled_release(*args, **kwargs):
+        assert kwargs["timeout"] == 5
+        entered.set()
+        try:
+            # Bound the failing control too: a blocked event loop cannot release us.
+            release.wait(3)
+            return Mock(status_code=503)
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(requests, "get", stalled_release)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=main.app), base_url="http://test"
+    ) as client:
+        lookup = asyncio.create_task(client.get("/smart-tree/latest"))
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            health = await asyncio.wait_for(client.get("/health"), 2)
+            assert health.status_code == 200
+            assert not finished.is_set(), "Release lookup blocked the health request"
+        finally:
+            release.set()
+            response = await lookup
+        assert response.status_code == 200
+        assert response.json()["version"] == "3.3.5"
 
 
 @pytest.mark.parametrize("failure", [OSError, zlib.error, RuntimeError])
