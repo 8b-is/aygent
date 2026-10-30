@@ -19,7 +19,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY worker.py .
+COPY worker.py dispatch_journal.py ./
+RUN mkdir -p /app/state && chown feedback:feedback /app/state
 
 # Switch to non-root user
 USER feedback

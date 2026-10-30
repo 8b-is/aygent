@@ -1,40 +1,15 @@
 name: Test Suite
 
 on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test-api:
     runs-on: ubuntu-latest
     
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-      
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,7 +36,6 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379
           API_KEY: test_api_key
         run: |
@@ -78,17 +52,6 @@ jobs:
   test-worker:
     runs-on: ubuntu-latest
     
-    services:
-      redis:
-        image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -116,8 +79,8 @@ jobs:
       - name: Run tests
         env:
           REDIS_URL: redis://localhost:6379
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPO: 8b-is/aygent
+          GITHUB_TOKEN: ""
+          GITHUB_REPO: test/repo
         run: |
           cd feedback-worker
           pytest -v --cov=. --cov-report=xml
@@ -148,10 +111,19 @@ jobs:
       - name: Run linters
         run: |
           # Check Python code style
-          black --check feedback-api feedback-worker
+          black --check feedback-api feedback-worker ci
           
           # Run ruff for linting
-          ruff check feedback-api feedback-worker
+          ruff check feedback-api feedback-worker ci
           
           # Type checking
           mypy feedback-api feedback-worker || true  # Allow mypy to fail for now
+
+  test-automation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s ci -p "test_*.py" -v
