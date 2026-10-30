@@ -1,20 +1,28 @@
-#!/usr/bin/env python3
 """
 Admin Panel for Smart-Tree Feedback System
 Beautiful web interface for managing feedback, agents, and monitoring
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
-import json
-from pathlib import Path
 import hashlib
-from collections import defaultdict
+import json
+import logging
+import os
+from datetime import datetime
+from pathlib import Path
+from typing import Annotated, Any
 
-from auth import verify_token, check_permission, verify_admin, create_access_token, AGENT_KEYS, AdminLogin
-from llm_assistant import get_assistant, SmartTreeTask
+from auth import (
+    AGENT_KEYS,
+    AdminLogin,
+    check_permission,
+    create_access_token,
+    verify_admin,
+    verify_token,
+)
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -640,16 +648,16 @@ async def admin_login(credentials: AdminLogin):
     """Admin login endpoint"""
     if not verify_admin(credentials.username, credentials.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+
     # Create admin token
     admin_data = {
         "name": f"Admin ({credentials.username})",
         "permissions": ["*"],
         "rate_limit": 1000,
     }
-    
+
     token = create_access_token(f"admin_{credentials.username}", admin_data)
-    
+
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -658,13 +666,15 @@ async def admin_login(credentials: AdminLogin):
 
 
 @router.get("/api/verify")
-async def verify_admin_token(token_data: Dict = Depends(verify_token)):
+async def verify_admin_token(token_data: Annotated[dict, Depends(verify_token)]):
     """Verify admin token is valid"""
     return {"valid": True, "user": token_data.get("name")}
 
 
 @router.get("/api/stats")
-async def get_admin_stats(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_admin_stats(
+    admin: Annotated[dict, Depends(check_permission("admin.read"))],
+):
     """Get dashboard statistics"""
     # These would come from database in production
     return {
@@ -676,15 +686,14 @@ async def get_admin_stats(admin: Dict = Depends(check_permission("admin.read")))
 
 
 @router.get("/api/feedback")
-async def get_feedback_items(
-    admin: Dict = Depends(check_permission("admin.read")),
-    limit: int = 20
+def get_feedback_items(
+    admin: Annotated[dict, Depends(check_permission("admin.read"))], limit: int = 20
 ):
     """Get recent feedback items"""
     # Read from feedback directory
     feedback_items = []
-    feedback_dir = Path("./feedback")
-    
+    feedback_dir = Path(os.getenv("FEEDBACK_DIR", "./feedback"))
+
     if feedback_dir.exists():
         for date_dir in sorted(feedback_dir.iterdir(), reverse=True):
             if date_dir.is_dir():
@@ -692,7 +701,7 @@ async def get_feedback_items(
                     try:
                         with open(summary_file, "r") as f:
                             content = f.read()
-                            
+
                             # Parse summary
                             item = {"id": summary_file.stem.replace(".summary", "")}
                             for line in content.split("\n"):
@@ -704,74 +713,98 @@ async def get_feedback_items(
                                     item["ai_model"] = line.split(":", 1)[1].strip()
                                 elif line.startswith("Impact:"):
                                     try:
-                                        item["impact_score"] = int(line.split(":")[1].split("/")[0].strip())
-                                    except:
+                                        item["impact_score"] = int(
+                                            line.split(":")[1].split("/")[0].strip()
+                                        )
+                                    except ValueError:
                                         item["impact_score"] = 5
-                            
+
                             feedback_items.append(item)
-                            
+
                             if len(feedback_items) >= limit:
                                 return feedback_items
-                    except Exception as e:
+                    except (OSError, UnicodeError):
+                        logger.warning("Skipping unreadable feedback summary")
                         continue
-    
+
     return feedback_items
 
 
 @router.get("/api/agents")
-async def get_agents_list(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_agents_list(
+    admin: Annotated[dict, Depends(check_permission("admin.read"))],
+):
     """Get list of configured agents"""
     agents = []
     for agent_id, agent_data in AGENT_KEYS.items():
-        agents.append({
-            "id": agent_id,
-            "name": agent_data["name"],
-            "permissions": agent_data["permissions"],
-            "rate_limit": agent_data["rate_limit"],
-            "api_key_preview": agent_data["secret"][:10] if len(agent_data["secret"]) > 10 else "***",
-        })
+        agents.append(
+            {
+                "id": agent_id,
+                "name": agent_data["name"],
+                "permissions": agent_data["permissions"],
+                "rate_limit": agent_data["rate_limit"],
+                "api_key_preview": (
+                    agent_data["secret"][:10]
+                    if len(agent_data["secret"]) > 10
+                    else "***"
+                ),
+            }
+        )
     return agents
 
 
 @router.get("/api/llm/tasks")
-async def get_llm_tasks(admin: Dict = Depends(check_permission("admin.read"))):
+def get_llm_tasks(
+    admin: Annotated[dict, Depends(check_permission("admin.read"))],
+):
     """Get recent LLM tasks"""
     # Read from cache directory
     tasks = []
-    cache_dir = Path("./llm_cache")
-    
+    cache_dir = Path(os.getenv("LLM_CACHE_DIR", "./llm_cache"))
+
     if cache_dir.exists():
-        for cache_file in sorted(cache_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[:10]:
+        for cache_file in sorted(
+            cache_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True
+        )[:10]:
             try:
                 with open(cache_file, "r") as f:
                     data = json.load(f)
-                    tasks.append({
-                        "task_type": "unknown",  # Would be in the data
-                        "model": data.get("model_used", "unknown"),
-                        "tokens": data.get("tokens_used", 0),
-                        "cost": data.get("cost_estimate", 0.0),
-                        "cached": data.get("cached", False),
-                        "timestamp": data.get("timestamp", ""),
-                    })
-            except:
+                    if not isinstance(data, dict):
+                        logger.warning("Skipping non-object LLM cache entry")
+                        continue
+                    tasks.append(
+                        {
+                            "task_type": "unknown",  # Would be in the data
+                            "model": data.get("model_used", "unknown"),
+                            "tokens": data.get("tokens_used", 0),
+                            "cost": data.get("cost_estimate", 0.0),
+                            "cached": data.get("cached", False),
+                            "timestamp": data.get("timestamp", ""),
+                        }
+                    )
+            except (OSError, ValueError):
+                logger.warning("Skipping unreadable LLM cache entry")
                 continue
-    
+
     return tasks
 
 
 @router.get("/api/monitoring")
-async def get_monitoring_stats(admin: Dict = Depends(check_permission("admin.read"))):
+async def get_monitoring_stats(
+    admin: Annotated[dict, Depends(check_permission("admin.read"))],
+):
     """Get system monitoring stats"""
     # Calculate uptime (mock for now)
-    import psutil
     import time
-    
+
+    import psutil
+
     boot_time = psutil.boot_time()
     current_time = time.time()
     uptime_seconds = current_time - boot_time
     days = int(uptime_seconds // 86400)
     hours = int((uptime_seconds % 86400) // 3600)
-    
+
     return {
         "uptime": f"{days}d {hours}h",
         "requests_per_minute": 42,
@@ -782,33 +815,35 @@ async def get_monitoring_stats(admin: Dict = Depends(check_permission("admin.rea
 
 @router.post("/api/agents")
 async def create_agent(
-    agent_data: Dict[str, Any],
-    admin: Dict = Depends(check_permission("admin.write"))
+    agent_data: dict[str, Any],
+    admin: Annotated[dict, Depends(check_permission("admin.write"))],
 ):
     """Create new agent"""
     # In production, this would save to database
     agent_id = f"agent_{agent_data['name'].lower().replace(' ', '_')}"
-    
+
     AGENT_KEYS[agent_id] = {
-        "secret": "sk_" + hashlib.sha256(f"{agent_id}:{datetime.now()}".encode()).hexdigest()[:32],
+        "secret": "sk_"
+        + hashlib.sha256(f"{agent_id}:{datetime.now()}".encode()).hexdigest()[:32],
         "name": agent_data["name"],
-        "permissions": agent_data.get("permissions", ["feedback.submit", "feedback.read"]),
+        "permissions": agent_data.get(
+            "permissions", ["feedback.submit", "feedback.read"]
+        ),
         "rate_limit": agent_data.get("rate_limit", 60),
     }
-    
+
     return {"message": "Agent created", "agent_id": agent_id}
 
 
 @router.delete("/api/agents/{agent_id}")
 async def delete_agent(
-    agent_id: str,
-    admin: Dict = Depends(check_permission("admin.write"))
+    agent_id: str, admin: Annotated[dict, Depends(check_permission("admin.write"))]
 ):
     """Delete an agent"""
     if agent_id in AGENT_KEYS:
         del AGENT_KEYS[agent_id]
         return {"message": "Agent deleted"}
-    
+
     raise HTTPException(status_code=404, detail="Agent not found")
 
 
