@@ -69,6 +69,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-supersecret}@postgres:5432/feedback
       - REDIS_URL=redis://:${REDIS_PASSWORD:-redispass}@redis:6379/0
       - API_KEY=${FEEDBACK_API_KEY:-your-secret-api-key}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
       - DEBUG=${DEBUG:-false}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - FEEDBACK_DIR=/app/feedback
@@ -113,6 +114,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - PROMETHEUS_PORT=9092
     volumes:
+      - worker-state:/app/state
       - ./logs/worker:/app/logs
       - ./feedback-worker/worker.py:/app/worker.py:ro  # Hot reload for dev
     ports:
@@ -261,6 +263,7 @@ services:
 # Volumes 📦
 # ===========================================
 volumes:
+  worker-state:
   postgres-data:
     driver: local
   redis-data:
