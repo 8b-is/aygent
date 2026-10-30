@@ -108,7 +108,8 @@ class TokenResponse(BaseModel):
     permissions: list
 
 
-security = HTTPBearer()
+# Keep the API's missing-credential response stable across FastAPI versions.
+security = HTTPBearer(auto_error=False)
 
 
 def verify_agent_key(agent_id: str, api_key: str) -> dict[str, Any] | None:
@@ -141,9 +142,11 @@ def create_access_token(agent_id: str, agent_data: dict[str, Any]) -> str:
 
 
 def verify_token(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
 ) -> dict[str, Any]:
     """Verify JWT token"""
+    if credentials is None:
+        raise HTTPException(status_code=403, detail="Not authenticated")
     token = credentials.credentials
 
     try:
