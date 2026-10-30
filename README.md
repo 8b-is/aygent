@@ -139,6 +139,22 @@ BACKUP_ENCRYPTION_KEY=your_32_char_encryption_key_here
 
 ## Configuration 🔧
 
+### Incoming GitHub webhooks
+
+`POST /webhook/github` requires an `X-Hub-Signature-256` signature over the
+unchanged request body. Configure the same high-entropy secret in the GitHub
+webhook settings and the API's `GITHUB_WEBHOOK_SECRET` environment variable.
+All three Compose configurations pass this variable to the API. Keep its value
+out of source control and logs; the empty example deliberately disables the
+endpoint with HTTP 503. Missing or invalid signatures return HTTP 403 before
+dispatch records are changed.
+
+This secret is separate from `GITHUB_TOKEN` and the outbound
+`SMART_TREE_FIX_WEBHOOK` URL. See GitHub's
+[webhook signature documentation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).
+Signature verification authenticates a delivery's body; it does not establish
+that a fix was completed, credits were stored, or the delivery is new.
+
 All configuration is handled through environment variables because we're civilized:
 
 ```env

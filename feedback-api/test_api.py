@@ -1,13 +1,13 @@
-#!/usr/bin/env python3
 """
 Test suite for ST-AYGENT Feedback API
 "Testing with style!" - Trisha from Accounting
 """
 
+import os
+import tempfile
+
 import pytest
 from fastapi.testclient import TestClient
-import tempfile
-import os
 
 # Set test environment
 os.environ["FEEDBACK_DIR"] = tempfile.mkdtemp()
@@ -16,7 +16,9 @@ os.environ["CONSENT_DIR"] = tempfile.mkdtemp()
 
 from main import app
 
-client = TestClient(app)
+client = TestClient(
+    app, headers={"X-API-Key": "agent_claude_001:synthetic-api-test-key"}
+)
 
 
 def test_root_endpoint():
